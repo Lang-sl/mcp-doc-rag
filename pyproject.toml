@@ -53,6 +53,11 @@ dependencies = [
 [project.scripts]
 rag = "rag.cli:main"
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/Lang-sl/mcp-doc-rag"
 Repository = "https://github.com/Lang-sl/mcp-doc-rag"
