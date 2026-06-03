@@ -1,6 +1,10 @@
 """Indexer orchestrator -- crawl -> parse -> chunk -> embed -> store.
 
 Central coordinator that ties the entire indexing pipeline together.
+
+The pipeline is structured in four phases so that embedding runs in a
+single global batch across all files — orders of magnitude faster than
+embedding per-file.
 """
 
 from __future__ import annotations
@@ -33,36 +37,36 @@ def _get_parser(file_type: str):
 def _store_chunks(
     client: chromadb.PersistentClient,
     chunks: list[Any],
-    embedder: Embedder,
+    embeddings: list[list[float]],
     config: Config,
 ) -> int:
-    """Store chunks in ChromaDB grouped by ``collection_name``.
+    """Store pre-embedded chunks in ChromaDB grouped by ``collection_name``.
+
+    The caller is responsible for embedding all chunks before calling
+    this function — the *embeddings* list must align 1:1 with *chunks*.
 
     Returns the number of chunks successfully stored.
     """
-    by_collection: dict[str, list[Any]] = {}
-    for chunk in chunks:
+    by_collection: dict[str, list[tuple[Any, list[float]]]] = {}
+    for chunk, vec in zip(chunks, embeddings):
         coll_name = chunk.collection_name
-        by_collection.setdefault(coll_name, []).append(chunk)
+        by_collection.setdefault(coll_name, []).append((chunk, vec))
 
     stored = 0
-    for coll_name, coll_chunks in by_collection.items():
+    batch_size = config.index_batch_size
+    for coll_name, items in by_collection.items():
         try:
             collection = client.get_or_create_collection(name=coll_name)
         except Exception:
             continue
 
-        batch_size = config.index_batch_size
-        for i in range(0, len(coll_chunks), batch_size):
-            batch = coll_chunks[i : i + batch_size]
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
             try:
-                ids = [c.chunk_id for c in batch]
-                texts = [c.embed_text for c in batch]
-                metadatas = [c.to_metadata() for c in batch]
-                embeddings = embedder.embed(texts)
-
-                if not embeddings or len(embeddings) != len(batch):
-                    continue
+                ids = [c.chunk_id for c, _ in batch]
+                texts = [c.embed_text for c, _ in batch]
+                metadatas = [c.to_metadata() for c, _ in batch]
+                vecs = [v for _, v in batch]
 
                 try:
                     collection.delete(ids=ids)
@@ -71,7 +75,7 @@ def _store_chunks(
 
                 collection.add(
                     ids=ids,
-                    embeddings=embeddings,
+                    embeddings=vecs,
                     documents=texts,
                     metadatas=metadatas,
                 )
@@ -89,19 +93,31 @@ def _index_source(
     embedder: Embedder,
     client: chromadb.PersistentClient,
 ) -> dict:
-    """Orchestrate indexing for a single source.
+    """Orchestrate indexing for a single source in four phases.
 
-    Crawl, parse, chunk, embed, and store.  Returns a stats dict with keys
-    ``files_total``, ``files_indexed``, ``files_skipped``, ``chunks``, and
-    ``elapsed_seconds``.
+    Phase 1 — Crawl: walk the directory, yield :class:`FileEntry` items.
+    Phase 2 — Parse & Chunk: parse changed files and build chunks.
+    Phase 3 — Embed: embed all chunks in a single global batch.
+    Phase 4 — Store: write to ChromaDB per collection.
+
+    Returns a stats dict with per-phase timings.
     """
-    start = time.time()
+    t0 = time.time()
+
+    # -- Phase 1: Crawl --
+    t1 = time.time()
     entries = list(crawl_source(label, path, config.index_state_path))
+    crawl_time = time.time() - t1
 
     files_total = len(entries)
     files_indexed = 0
     files_skipped = 0
-    total_chunks = 0
+
+    # -- Phase 2: Parse & Chunk (collect globally) --
+    t2 = time.time()
+    all_chunks: list[Any] = []
+    parse_time = 0.0
+    chunk_time = 0.0
 
     for entry in entries:
         if not entry.needs_index:
@@ -113,32 +129,58 @@ def _index_source(
             files_skipped += 1
             continue
 
+        ta = time.time()
         try:
             parsed = parser(entry.abs_path, entry.source_label, entry.source_module)
         except Exception:
             files_skipped += 1
             continue
+        parse_time += time.time() - ta
 
         if not parsed:
             files_skipped += 1
             continue
 
+        tb = time.time()
         chunks = build_chunks(parsed, config)
+        chunk_time += time.time() - tb
+
         if chunks:
-            stored = _store_chunks(client, chunks, embedder, config)
-            total_chunks += stored
+            all_chunks.extend(chunks)
+            files_indexed += 1
+        else:
+            files_skipped += 1
 
-        files_indexed += 1
+    total_chunks = len(all_chunks)
 
+    # -- Phase 3: Embed (global batch) --
+    t3 = time.time()
+    embed_texts = [c.embed_text for c in all_chunks]
+    embeddings = embedder.embed(embed_texts, batch_size=config.embed_batch_size)
+    embed_time = time.time() - t3
+
+    # -- Phase 4: Store to ChromaDB --
+    t4 = time.time()
+    stored = 0
+    if embeddings:
+        stored = _store_chunks(client, all_chunks, embeddings, config)
+    chroma_time = time.time() - t4
+
+    # Persist index state for incremental future runs
     update_state(config.index_state_path, label, entries)
 
-    elapsed = time.time() - start
+    elapsed = time.time() - t0
     return {
         "files_total": files_total,
         "files_indexed": files_indexed,
         "files_skipped": files_skipped,
-        "chunks": total_chunks,
+        "chunks": stored,
         "elapsed_seconds": round(elapsed, 2),
+        "crawl_time": round(crawl_time, 2),
+        "parse_time": round(parse_time, 2),
+        "chunk_time": round(chunk_time, 2),
+        "embed_time": round(embed_time, 2),
+        "chroma_time": round(chroma_time, 2),
     }
 
 
@@ -165,7 +207,10 @@ def index_source(config: Config, label: str) -> dict:
 def index_all(config: Config) -> dict:
     """Run the full indexing pipeline across ALL registered sources.
 
-    Returns ``{"total_chunks": <int>, "sources": {label: stats, ...}}``.
+    Returns ``{"total_chunks": <int>, "sources": {label: stats, ...}}``
+    where each per-source *stats* dict includes per-phase timing fields:
+    ``crawl_time``, ``parse_time``, ``chunk_time``, ``embed_time``,
+    ``chroma_time``, and ``elapsed_seconds``.
     """
     embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
     client = chromadb.PersistentClient(path=config.chroma_dir)
@@ -176,14 +221,19 @@ def index_all(config: Config) -> dict:
     for label, path in config.doc_sources.items():
         try:
             stats = _index_source(label, path, config, embedder, client)
-        except Exception:
+        except Exception as exc:
             stats = {
                 "files_total": 0,
                 "files_indexed": 0,
                 "files_skipped": 0,
                 "chunks": 0,
                 "elapsed_seconds": 0,
-                "error": True,
+                "crawl_time": 0,
+                "parse_time": 0,
+                "chunk_time": 0,
+                "embed_time": 0,
+                "chroma_time": 0,
+                "error": str(exc),
             }
         sources[label] = stats
         total_chunks += stats.get("chunks", 0)

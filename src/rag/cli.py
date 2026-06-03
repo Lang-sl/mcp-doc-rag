@@ -7,6 +7,43 @@ import sys
 from rag.config import load_config
 
 
+def _print_reindex_timing(label: str, stats: dict) -> None:
+    """Print per-phase timing for one source after reindex."""
+    if stats.get("error"):
+        print(f"\n  [{label}] ERROR: {stats['error']}")
+        return
+
+    elapsed = stats.get("elapsed_seconds", 0)
+
+    print(f"\n  [{label}]")
+    print(f"    Files: {stats.get('files_total', 0)} total, "
+          f"{stats.get('files_indexed', 0)} indexed, "
+          f"{stats.get('files_skipped', 0)} skipped")
+    print(f"    Chunks stored: {stats.get('chunks', 0)}")
+    print(f"    Timing (s):")
+    print(f"      crawl  {stats.get('crawl_time', 0):>8.2f}")
+    print(f"      parse  {stats.get('parse_time', 0):>8.2f}")
+    print(f"      chunk  {stats.get('chunk_time', 0):>8.2f}")
+    print(f"      embed  {stats.get('embed_time', 0):>8.2f}")
+    print(f"      chroma {stats.get('chroma_time', 0):>8.2f}")
+    print(f"      TOTAL  {elapsed:>8.2f}")
+
+
+def _print_reindex_summary(sources: dict[str, dict], total_chunks: int) -> None:
+    """Print cross-source timing summary after index_all."""
+    print(f"\n{'=' * 60}")
+    print(f"  Done — {total_chunks} chunks across {len(sources)} source(s)")
+    print(f"{'=' * 60}")
+    for label, stats in sources.items():
+        if stats.get("error"):
+            print(f"  {label}: ERROR — {stats['error']}")
+            continue
+        elapsed = stats.get("elapsed_seconds", 0)
+        embed = stats.get("embed_time", 0)
+        pct = (embed / elapsed * 100) if elapsed > 0 else 0
+        print(f"  {label}: {elapsed:.1f}s total, embed={embed:.1f}s ({pct:.0f}%)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="rag",
@@ -90,13 +127,17 @@ def main() -> None:
             import os
             if os.path.exists(config.index_state_path):
                 os.remove(config.index_state_path)
+                print("  [full rebuild] index state cleared")
 
         if args.source_label:
             result = index_source(config, args.source_label)
+            _print_reindex_timing(args.source_label, result)
         else:
             result = index_all(config)
-        import json
-        print(json.dumps(result, indent=2))
+            sources = result.get("sources", {})
+            for label, stats in sources.items():
+                _print_reindex_timing(label, stats)
+            _print_reindex_summary(sources, result.get("total_chunks", 0))
 
     elif args.command == "query":
         from rag.retriever.hybrid import HybridRetriever

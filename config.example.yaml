@@ -18,7 +18,7 @@ doc_sources:
 ollama_host: http://localhost:11434
 embed_model: nomic-embed-text
 embed_dim: 768
-embed_batch_size: 32
+embed_batch_size: 64
 
 # ---- Reranker ----
 reranker_model: jinaai/jina-reranker-v2-base-multilingual
@@ -60,4 +60,4 @@ context_max_tokens: 6000
 cache_max_entries: 128
 
 # ---- Index ----
-index_batch_size: 100
+index_batch_size: 500

@@ -287,7 +287,8 @@ Query
 
 ### Performance
 
-- **First index is slow.** Embedding all chunks via Ollama takes time. On a typical machine, ~10k chunks takes 15-30 minutes. Subsequent incremental indexes are fast (seconds).
+- **First index.** Embedding runs in a single global batch via Ollama's batch API — ~10k chunks takes 1-2 minutes for embedding, not tens of minutes. Subsequent incremental indexes are fast (seconds — unchanged files are skipped via mtime/size pre-check).
+- **Pipeline phases.** `python -m rag reindex` prints per-phase timing (crawl, parse, chunk, embed, chroma) so you can see exactly where time is spent. Embedding is typically < 30% of total time.
 - **Ollama must be running.** Start it with `ollama serve` or ensure the Windows service is running.
 - **Reranker download.** The first `search_docs` call will download the jina-reranker model (~1.1GB). This is one-time. Pre-download by running a test search after indexing. The reranker includes an automatic compatibility patch for transformers >= 4.46.
 - **ChromaDB storage.** The vector database defaults to `./chroma_db` inside the project directory. It can grow to several GB for large doc sets — configure `chroma_dir` in config.yaml if you need it elsewhere.

@@ -24,7 +24,7 @@ class Config:
     ollama_host: str = "http://localhost:11434"
     embed_model: str = "nomic-embed-text"
     embed_dim: int = 768
-    embed_batch_size: int = 32
+    embed_batch_size: int = 64
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
     reranker_max_length: int = 512
     chunk_max_chars: int = 2000
@@ -40,7 +40,7 @@ class Config:
     ref_expansion_max: int = 5
     context_max_tokens: int = 6000
     cache_max_entries: int = 128
-    index_batch_size: int = 100
+    index_batch_size: int = 500
 
 
 _DEFAULT_CONFIG_PATH = "./config.yaml"

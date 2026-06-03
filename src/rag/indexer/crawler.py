@@ -15,6 +15,7 @@ class FileEntry:
     source_module: str
     file_type: str  # "html", "pdf", "header", "unknown"
     needs_index: bool
+    sha1: str | None = None  # cached to avoid re-reading in update_state
 
 
 def _classify_file(path: str) -> str:
@@ -64,27 +65,29 @@ def _save_state(state_path: str, state: dict) -> None:
         json.dump(state, fh, indent=2, sort_keys=True)
 
 
-def _file_changed(abs_path: str, cached: dict | None) -> bool:
+def _file_changed(abs_path: str, cached: dict | None) -> tuple[bool, str | None]:
     """Three-tier check whether *abs_path* has changed since it was cached.
 
-    Returns ``True`` when:
+    Returns ``(needs_index, sha1_hex | None)``.
+
+    *needs_index* is ``True`` when:
     - *cached* is ``None`` (never seen before).
     - ``os.stat`` fails — the file may be unreadable or gone.
     - The cached ``sha1`` does not match the current content hash.
 
-    Returns ``False`` (fast path) when ``mtime`` **and** ``size`` are both
-    unchanged.
+    Returns ``(False, cached_sha1)`` (fast path) when ``mtime`` **and**
+    ``size`` are both unchanged — the file is not read at all.
     """
     if cached is None:
-        return True
+        return True, None
 
     try:
         st = os.stat(abs_path)
     except OSError:
-        return True
+        return True, None
 
     if st.st_mtime_ns == cached["mtime"] and st.st_size == cached["size"]:
-        return False
+        return False, cached.get("sha1")
 
     sha1 = hashlib.sha1()
     try:
@@ -95,9 +98,10 @@ def _file_changed(abs_path: str, cached: dict | None) -> bool:
                     break
                 sha1.update(chunk)
     except OSError:
-        return True
+        return True, None
 
-    return sha1.hexdigest() != cached["sha1"]
+    new_digest = sha1.hexdigest()
+    return new_digest != cached["sha1"], new_digest
 
 
 def crawl_source(
@@ -121,7 +125,7 @@ def crawl_source(
             rel_path = os.path.relpath(abs_path, source_path)
             module = _detect_module(rel_path)
             cached = source_state.get(rel_path)
-            needs_index = _file_changed(abs_path, cached)
+            needs_index, sha1 = _file_changed(abs_path, cached)
 
             yield FileEntry(
                 abs_path=abs_path,
@@ -130,6 +134,7 @@ def crawl_source(
                 source_module=module,
                 file_type=file_type,
                 needs_index=needs_index,
+                sha1=sha1,
             )
 
 
@@ -140,21 +145,28 @@ def update_state(
 
     For each file the current ``sha1``, ``mtime`` (nanosecond precision) and
     ``size`` are recorded under *source_label* in the state JSON.
+
+    Uses ``entry.sha1`` when available (from :func:`crawl_source`) to avoid
+    re-reading the file.  Falls back to a fresh ``sha1`` computation only
+    when the cached digest is missing.
     """
     state = _load_state(state_path)
-    source_state: dict = state.setdefault(source_label, {})
+    source_state: dict[str, dict] = state.setdefault(source_label, {})
 
     for entry in entries:
-        sha1 = hashlib.sha1()
-        try:
-            with open(entry.abs_path, "rb") as fh:
-                while True:
-                    chunk = fh.read(65536)
-                    if not chunk:
-                        break
-                    sha1.update(chunk)
-        except OSError:
-            continue
+        digest = entry.sha1
+        if digest is None:
+            sha1_obj = hashlib.sha1()
+            try:
+                with open(entry.abs_path, "rb") as fh:
+                    while True:
+                        chunk = fh.read(65536)
+                        if not chunk:
+                            break
+                        sha1_obj.update(chunk)
+                digest = sha1_obj.hexdigest()
+            except OSError:
+                continue
 
         try:
             st = os.stat(entry.abs_path)
@@ -162,7 +174,7 @@ def update_state(
             continue
 
         source_state[entry.rel_path] = {
-            "sha1": sha1.hexdigest(),
+            "sha1": digest,
             "mtime": st.st_mtime_ns,
             "size": st.st_size,
         }
