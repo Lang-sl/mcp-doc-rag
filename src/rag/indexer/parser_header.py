@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from rag.indexer.parser_registry import register_parser
+
 
 # ---------------------------------------------------------------------------
 # Module-level regex patterns
@@ -39,6 +41,7 @@ _SKIP_NAMES: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 
+@register_parser(file_type="header", extensions=[".h", ".hpp", ".hxx"])
 def parse_header(file_path: str, source_label: str, source_module: str) -> list[dict[str, Any]]:
     """Parse a C++ header file into a list of structured element dicts.
 

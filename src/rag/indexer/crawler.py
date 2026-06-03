@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Iterator
 
+from rag.indexer.parser_registry import classify_file  # noqa: E402 — registration side-effect
+
 
 @dataclass
 class FileEntry:
@@ -16,21 +18,6 @@ class FileEntry:
     file_type: str  # "html", "pdf", "header", "unknown"
     needs_index: bool
     sha1: str | None = None  # cached to avoid re-reading in update_state
-
-
-def _classify_file(path: str) -> str:
-    """Classify a file by extension.
-
-    Returns one of: "html", "pdf", "header", "unknown".
-    """
-    ext = os.path.splitext(path)[1].lower()
-    if ext in (".html", ".htm"):
-        return "html"
-    if ext == ".pdf":
-        return "pdf"
-    if ext in (".h", ".hpp", ".hxx"):
-        return "header"
-    return "unknown"
 
 
 def _detect_module(rel_path: str) -> str:
@@ -118,7 +105,7 @@ def crawl_source(
     for root, _dirs, files in os.walk(source_path):
         for filename in files:
             abs_path = os.path.join(root, filename)
-            file_type = _classify_file(filename)
+            file_type = classify_file(filename)
             if file_type == "unknown":
                 continue
 

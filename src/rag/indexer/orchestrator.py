@@ -18,20 +18,7 @@ from rag.config import Config
 from rag.indexer.chunker import build_chunks
 from rag.indexer.crawler import FileEntry, crawl_all, crawl_source, update_state
 from rag.indexer.embedder import Embedder
-from rag.indexer.parser_header import parse_header
-from rag.indexer.parser_html import parse_html
-from rag.indexer.parser_pdf import parse_pdf
-
-PARSERS = {
-    "html": parse_html,
-    "pdf": parse_pdf,
-    "header": parse_header,
-}
-
-
-def _get_parser(file_type: str):
-    """Return the parser callable for *file_type*, or None when unknown."""
-    return PARSERS.get(file_type)
+from rag.indexer.parser_registry import get_parser
 
 
 def _store_chunks(
@@ -124,7 +111,7 @@ def _index_source(
             files_skipped += 1
             continue
 
-        parser = _get_parser(entry.file_type)
+        parser = get_parser(entry.file_type)
         if parser is None:
             files_skipped += 1
             continue

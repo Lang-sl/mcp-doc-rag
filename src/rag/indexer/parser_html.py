@@ -17,12 +17,15 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from rag.indexer.parser_registry import register_parser
+
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
+@register_parser(file_type="html", extensions=[".html", ".htm"])
 def parse_html(file_path: str, source_label: str, source_module: str) -> list[dict[str, Any]]:
     """Parse a Doxygen HTML file into a list of structured element dicts.
 

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from rag.indexer.parser_registry import register_parser
 
+
+@register_parser(file_type="pdf", extensions=[".pdf"])
 def parse_pdf(file_path: str, source_label: str, source_module: str) -> list[dict[str, Any]]:
     """Parse a PDF file into a list of structured element dicts.
 

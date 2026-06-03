@@ -168,22 +168,34 @@ class TestHybridSearch:
             pytest.skip("No source labels found in index")
 
         config = _get_config()
-        # Find a module under this source
+        # Find a module under this source (non-empty collections only)
         client = chromadb.PersistentClient(path=config.chroma_dir)
         prefix = f"{source_label}."
         modules = [
             c.name[len(prefix):]
             for c in client.list_collections()
-            if c.name.startswith(prefix)
+            if c.name.startswith(prefix) and c.count() > 0
         ]
         if not modules:
             pytest.skip(f"No modules found for source '{source_label}'")
 
+        # Pick a search term from actual chunk text in this module
+        coll = client.get_collection(f"{source_label}.{modules[0]}")
+        sample = coll.get(limit=1)
+        query_term = "function"
+        if sample["documents"]:
+            # Grab the first 2-3 words from the chunk's text as a query
+            words = sample["documents"][0].split()
+            if words:
+                query_term = " ".join(words[:3])
+
         retriever = HybridRetriever(config)
         results = retriever.search(
-            "function", top_k=5, source_label=source_label, module=modules[0]
+            query_term, top_k=5, source_label=source_label, module=modules[0]
         )
-        assert len(results) > 0
+        assert len(results) > 0, (
+            f"No results for query='{query_term}' in module {modules[0]}"
+        )
         for r in results:
             assert r.chunk.source_module == modules[0]
             assert r.chunk.source_label == source_label

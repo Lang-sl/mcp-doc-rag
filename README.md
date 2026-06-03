@@ -264,6 +264,22 @@ User gets a precise answer with code examples from the actual SDK docs.
 | PDF | `.pdf` extension | page-paragraph sections |
 | C++ Headers | `.h`, `.hpp`, `.hxx` | function/class/enum signatures with comments |
 
+### Adding Custom Parsers
+
+Parsers use decorator-based registration — add a new format without touching the orchestrator or crawler:
+
+```python
+# parser_markdown.py
+from rag.indexer.parser_registry import register_parser
+
+@register_parser(file_type="markdown", extensions=[".md", ".mdx"])
+def parse_markdown(file_path, source_label, source_module):
+    # parse .md files → return list[dict]
+    ...
+```
+
+Then import it in `src/rag/indexer/__init__.py` to trigger registration. The crawler auto-discovers `.md` files, and the orchestrator auto-picks the right parser.
+
 ## Retrieval Pipeline
 
 ```
@@ -404,13 +420,14 @@ rag-engine/
     ├── source_manager.py      # CRUD for doc sources
     ├── context_builder.py     # Token-bounded context formatter
     ├── indexer/
-    │   ├── crawler.py         # File walker with SHA1 incremental check
-    │   ├── parser_html.py     # Doxygen HTML parser (4 formats)
-    │   ├── parser_pdf.py      # PDF text extractor
-    │   ├── parser_header.py   # C++ header signature extractor
-    │   ├── chunker.py         # Structured chunk assembler
-    │   ├── embedder.py        # Ollama embedding API wrapper
-    │   └── orchestrator.py    # Full index pipeline
+    │   ├── crawler.py           # File walker with SHA1 incremental check
+    │   ├── parser_registry.py   # Decorator-based parser registration
+    │   ├── parser_html.py       # Doxygen HTML parser (4 formats)
+    │   ├── parser_pdf.py        # PDF text extractor
+    │   ├── parser_header.py     # C++ header signature extractor
+    │   ├── chunker.py           # Structured chunk assembler
+    │   ├── embedder.py          # Ollama batch embedding wrapper
+    │   └── orchestrator.py      # Full index pipeline
     └── retriever/
         ├── vector_search.py   # ChromaDB ANN per collection
         ├── bm25_search.py     # Field-weighted BM25
