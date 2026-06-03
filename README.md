@@ -117,10 +117,10 @@ python -m rag reindex --full
 python -m rag query "How to initialize the rendering kernel"
 
 # With source filter
-python -m rag query --source my_sdk "CalculateToolpath"
+python -m rag query --source my_sdk "Initialize renderer"
 
 # Exact symbol lookup
-python -m rag symbol MwMultiAxis::CalculateToolpath
+python -m rag symbol MySDK::Renderer::Initialize
 
 # Build context block (prompt-ready)
 python -m rag context "5-axis simulation setup"
@@ -249,11 +249,11 @@ After configuration, restart Claude Code or use `/mcp-reload`.
 ### Example Claude Code Usage
 
 ```
-User: "How do I use MwMultiAxis::CalculateToolpath?"
+User: "How do I use MySDK::Renderer::Initialize?"
 
 Claude internally calls:
-  find_symbol("MwMultiAxis::CalculateToolpath")
-  get_api_function("CalculateToolpath", class_name="MwMultiAxis")
+  find_symbol("MySDK::Renderer::Initialize")
+  get_api_function("Initialize", class_name="MySDK::Renderer")
   → Returns signature, params, remarks, example code
 
 User gets a precise answer with code examples from the actual SDK docs.
@@ -265,7 +265,7 @@ User gets a precise answer with code examples from the actual SDK docs.
 |--------|-----------|-----------|
 | Doxygen HTML (modern) | `<meta generator="Doxygen">`, `.memitem` | functions, classes, enums, macros, params, return types |
 | Doxygen HTML (legacy) | `<TITLE>Function:...</TITLE>` | functions, signatures, params, descriptions |
-| ModuleWorks CHM | `chm-test.js`, `id="main_chm"` | functions, classes, enums, params |
+| CHM-based HTML | `<meta name="generator" content="...">` | functions, classes, enums, params |
 | PDF | `.pdf` extension | page-paragraph sections |
 | C++ Headers | `.h`, `.hpp`, `.hxx` | function/class/enum signatures with comments |
 
@@ -316,7 +316,7 @@ Query
 
 ### Document Sources
 
-- **Auto module detection.** Sub-modules are auto-detected from directory structure (first path component). For example, `5axis/5axcore/public/mwmulti.h` → module `5axis`.
+- **Auto module detection.** Sub-modules are auto-detected from directory structure (first path component). For example, `rendering/opengl/public/renderer.h` → module `rendering`.
 - **Add sources at any time.** Use `add_doc_source` MCP tool or CLI. Run `reindex --source <label>` after adding.
 - **Supported extensions.** `.html`, `.htm`, `.pdf`, `.h`, `.hpp`, `.hxx`. Other files are skipped.
 
