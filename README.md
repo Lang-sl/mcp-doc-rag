@@ -4,7 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-native-purple)](https://modelcontextprotocol.io/)
-[中文](README.zh-CN.md)
+[![中文文档](https://img.shields.io/badge/docs-中文-blue)](README.zh-CN.md)
 
 **Fully local, MCP-integrated RAG system for C/C++ SDK documentation retrieval.**
 

@@ -4,8 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-native-purple)](https://modelcontextprotocol.io/)
-
-[English](README.md)
+[![English Docs](https://img.shields.io/badge/docs-English-blue)](README.md)
 
 **完全本地化、MCP 集成的 C/C++ SDK 文档 RAG 检索系统。**
 
