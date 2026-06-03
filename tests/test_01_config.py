@@ -57,8 +57,9 @@ class TestLoadConfig:
         config = load_config(tmp)
         assert config.top_k_default == 42
         assert config.embed_dim == 384
-        # Unspecified fields keep defaults
-        assert config.chroma_dir == "./chroma_db"
+        # Unspecified fields keep defaults, resolved relative to config file dir
+        import pathlib
+        assert config.chroma_dir == str(pathlib.Path(tmp).parent / "chroma_db")
 
         os.remove(tmp)
 

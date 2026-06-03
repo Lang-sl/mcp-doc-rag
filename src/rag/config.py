@@ -60,20 +60,42 @@ def _dict_to_bm25_weights(data: dict) -> BM25Weights:
     )
 
 
+def _resolve_path(raw: str, config_dir: str) -> str:
+    """If *raw* is a relative path, resolve it against *config_dir*.
+
+    Absolute paths are returned unchanged. This ensures paths like
+    ``./chroma_db`` always resolve relative to the config file location,
+    not the current working directory (which may differ when launched
+    via MCP from another project).
+    """
+    if os.path.isabs(raw):
+        return raw
+    return os.path.normpath(os.path.join(config_dir, raw))
+
+
 def load_config(path: Optional[str] = None) -> Config:
     """Load configuration from a YAML file, filling defaults for missing keys.
 
     If *path* is None, the ``RAG_CONFIG_PATH`` environment variable is checked,
     falling back to ``./config.yaml`` (current working directory).
+
+    Relative paths in the config (``chroma_dir``, ``symbol_index_path``,
+    ``index_state_path``) are resolved against the directory containing the
+    config file — not CWD — so the index location is deterministic regardless
+    of where the MCP server process is launched from.
     """
     if path is None:
         path = os.environ.get("RAG_CONFIG_PATH", _DEFAULT_CONFIG_PATH)
 
+    # Resolve the config path itself first, then derive its directory
+    config_path = os.path.abspath(path)
+    config_dir = os.path.dirname(config_path)
+
     defaults = Config()
     yaml_data: dict = {}
 
-    if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as fh:
+    if os.path.isfile(config_path):
+        with open(config_path, "r", encoding="utf-8") as fh:
             loaded = yaml.safe_load(fh)
         if isinstance(loaded, dict):
             yaml_data = loaded
@@ -89,9 +111,9 @@ def load_config(path: Optional[str] = None) -> Config:
         bm25 = _dict_to_bm25_weights(yaml_data["bm25_weights"])
 
     return Config(
-        chroma_dir=_get("chroma_dir", defaults.chroma_dir),
-        symbol_index_path=_get("symbol_index_path", defaults.symbol_index_path),
-        index_state_path=_get("index_state_path", defaults.index_state_path),
+        chroma_dir=_resolve_path(_get("chroma_dir", defaults.chroma_dir), config_dir),
+        symbol_index_path=_resolve_path(_get("symbol_index_path", defaults.symbol_index_path), config_dir),
+        index_state_path=_resolve_path(_get("index_state_path", defaults.index_state_path), config_dir),
         doc_sources=_get("doc_sources", defaults.doc_sources),
         ollama_host=_get("ollama_host", defaults.ollama_host),
         embed_model=_get("embed_model", defaults.embed_model),
