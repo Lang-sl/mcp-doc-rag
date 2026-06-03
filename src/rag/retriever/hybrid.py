@@ -1,0 +1,231 @@
+"""Hybrid retriever — orchestrates the full retrieval pipeline."""
+from __future__ import annotations
+
+import hashlib
+from collections import OrderedDict
+from typing import Any
+
+import chromadb
+
+from rag.config import Config
+from rag.indexer.embedder import Embedder
+from rag.models import Chunk, SearchResult
+from rag.retriever.vector_search import vector_search
+from rag.retriever.bm25_search import bm25_search
+from rag.retriever.reranker import Reranker
+
+
+class HybridRetriever:
+    """Full pipeline: BM25 + vector -> RRF -> reranker -> code boost -> reference expansion."""
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.client = chromadb.PersistentClient(path=config.chroma_dir)
+        self.embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
+        self.reranker = Reranker(config.reranker_model, config.reranker_max_length)
+
+        # LRU cache keyed by (query, source_label, module, top_k)
+        self._cache: OrderedDict[str, list[dict]] = OrderedDict()
+
+    def _cache_key(self, query: str, source_label: str | None, module: str | None, top_k: int) -> str:
+        return hashlib.md5(f"{query}|{source_label}|{module}|{top_k}".encode()).hexdigest()
+
+    def _get_cached(self, query: str, source_label: str | None, module: str | None, top_k: int) -> list[SearchResult] | None:
+        key = self._cache_key(query, source_label, module, top_k)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            raw = self._cache[key]
+            return [_deserialize_result(r) for r in raw]
+        return None
+
+    def _set_cache(self, query: str, source_label: str | None, module: str | None, top_k: int, results: list[SearchResult]) -> None:
+        key = self._cache_key(query, source_label, module, top_k)
+        self._cache[key] = [_serialize_result(r) for r in results]
+
+        # Evict least recently used if over capacity
+        if len(self._cache) > self.config.cache_max_entries:
+            self._cache.popitem(last=False)
+
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        source_label: str | None = None,
+        module: str | None = None,
+    ) -> list[SearchResult]:
+        """Run the full retrieval pipeline."""
+        if top_k is None:
+            top_k = self.config.top_k_default
+
+        # Check cache
+        cached = self._get_cached(query, source_label, module, top_k)
+        if cached is not None:
+            return cached
+
+        candidate_count = top_k * self.config.candidate_expand_factor
+
+        # Step 1: Vector search
+        vec_results = vector_search(
+            self.client, self.embedder, self.config,
+            query, candidate_count, source_label,
+        )
+
+        # Step 2: BM25 search
+        bm25_results = bm25_search(
+            self.client, self.config, query, candidate_count, source_label,
+        )
+
+        # Step 3: RRF fusion
+        fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count)
+
+        # Step 4: Reranker
+        if fused:
+            try:
+                fused = self.reranker.rerank(query, fused)
+            except Exception:
+                pass  # Reranker unavailable — continue with RRF scores
+
+        # Step 5: Code boost
+        query_lower = query.lower()
+        if any(trigger in query_lower for trigger in self.config.code_boost_triggers):
+            for r in fused:
+                if r.chunk.contains_code:
+                    r.score *= self.config.code_boost_ratio
+
+            # Re-sort after boost
+            fused.sort(key=lambda x: x.score, reverse=True)
+
+        # Step 6: Reference expansion
+        fused = _expand_references(fused, self.client, self.config.ref_expansion_max)
+
+        # Step 7: Module filter (if specified, apply after expansion for best recall)
+        if module:
+            fused = [r for r in fused if r.chunk.source_module == module]
+
+        top_results = fused[:top_k]
+
+        # Cache
+        self._set_cache(query, source_label, module, top_k, top_results)
+
+        return top_results
+
+
+def _rrf_fuse(
+    vec_results: list[SearchResult],
+    bm25_results: list[SearchResult],
+    k: int,
+    max_results: int,
+) -> list[SearchResult]:
+    """Reciprocal Rank Fusion of two ranked lists."""
+    rrf_scores: dict[str, tuple[float, SearchResult]] = {}
+
+    for rank, r in enumerate(vec_results[:max_results], start=1):
+        rrf = 1.0 / (k + rank)
+        if r.chunk.chunk_id in rrf_scores:
+            prev_score, prev_result = rrf_scores[r.chunk.chunk_id]
+            rrf_scores[r.chunk.chunk_id] = (prev_score + rrf, prev_result)
+        else:
+            rrf_scores[r.chunk.chunk_id] = (rrf, r)
+
+    for rank, r in enumerate(bm25_results[:max_results], start=1):
+        rrf = 1.0 / (k + rank)
+        if r.chunk.chunk_id in rrf_scores:
+            prev_score, prev_result = rrf_scores[r.chunk.chunk_id]
+            rrf_scores[r.chunk.chunk_id] = (prev_score + rrf, prev_result)
+        else:
+            rrf_scores[r.chunk.chunk_id] = (rrf, r)
+
+    fused = []
+    for chunk_id, (score, result) in rrf_scores.items():
+        result.score = score
+        fused.append(result)
+
+    fused.sort(key=lambda x: x.score, reverse=True)
+    return fused
+
+
+def _expand_references(
+    results: list[SearchResult],
+    client: chromadb.PersistentClient,
+    max_expansion: int,
+) -> list[SearchResult]:
+    """One-hop reference expansion: add chunks referenced by top results."""
+    if not results:
+        return results
+
+    existing_ids = {r.chunk.chunk_id for r in results}
+    expanded = list(results)
+    added = 0
+
+    # Pre-fetch collection list once
+    collections = client.list_collections()
+
+    for r in results[:5]:  # Only expand from top 5
+        for ref_symbol in r.chunk.references:
+            if added >= max_expansion:
+                break
+
+            # Search for the referenced symbol across all collections
+            for coll in collections:
+                try:
+                    collection = client.get_collection(name=coll.name)
+                    response = collection.get(
+                        where={"symbol_id": ref_symbol},
+                        include=["metadatas", "documents"],
+                        limit=1,
+                    )
+                except Exception:
+                    continue
+
+                ids = response.get("ids", [])
+                if ids and ids[0] not in existing_ids:
+                    metadata = response["metadatas"][0] if response.get("metadatas") else {}
+                    document = response["documents"][0] if response.get("documents") else ""
+                    chunk = Chunk.from_metadata(metadata, document)
+                    expanded.append(SearchResult(
+                        chunk=chunk,
+                        score=r.score * 0.8,  # Slightly lower score than the referencing chunk
+                    ))
+                    existing_ids.add(ids[0])
+                    added += 1
+                    break
+
+    return expanded
+
+
+def _serialize_result(r: SearchResult) -> dict[str, Any]:
+    """Serialize SearchResult to JSON-serializable dict for caching."""
+    return {
+        "chunk_id": r.chunk.chunk_id,
+        "type": r.chunk.type,
+        "symbol_id": r.chunk.symbol_id,
+        "class_name": r.chunk.class_name,
+        "function_name": r.chunk.function_name,
+        "signature": r.chunk.signature,
+        "source_label": r.chunk.source_label,
+        "source_module": r.chunk.source_module,
+        "source_file": r.chunk.source_file,
+        "contains_code": r.chunk.contains_code,
+        "references": r.chunk.references,
+        "embed_text": r.chunk.embed_text,
+        "score": r.score,
+    }
+
+
+def _deserialize_result(data: dict[str, Any]) -> SearchResult:
+    """Deserialize cached result dict back to SearchResult."""
+    chunk = Chunk(
+        chunk_id=data["chunk_id"],
+        type=data["type"],
+        symbol_id=data.get("symbol_id"),
+        class_name=data.get("class_name"),
+        function_name=data.get("function_name"),
+        signature=data.get("signature"),
+        source_label=data["source_label"],
+        source_module=data["source_module"],
+        source_file=data["source_file"],
+        contains_code=data.get("contains_code", False),
+        references=data.get("references", []),
+        embed_text=data["embed_text"],
+    )
+    return SearchResult(chunk=chunk, score=data["score"])

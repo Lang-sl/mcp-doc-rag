@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from dataclasses import dataclass
+from typing import Iterator
+
+
+@dataclass
+class FileEntry:
+    abs_path: str
+    rel_path: str
+    source_label: str
+    source_module: str
+    file_type: str  # "html", "pdf", "header", "unknown"
+    needs_index: bool
+
+
+def _classify_file(path: str) -> str:
+    """Classify a file by extension.
+
+    Returns one of: "html", "pdf", "header", "unknown".
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".html", ".htm"):
+        return "html"
+    if ext == ".pdf":
+        return "pdf"
+    if ext in (".h", ".hpp", ".hxx"):
+        return "header"
+    return "unknown"
+
+
+def _detect_module(rel_path: str) -> str:
+    """Extract sub-module from the first directory component of *rel_path*.
+
+    Backslashes are normalised to forward slashes.  If the path has no
+    directory component the module is ``"root"``.
+    """
+    normalised = rel_path.replace("\\", "/")
+    parts = normalised.split("/")
+    if len(parts) <= 1:
+        return "root"
+    return parts[0]
+
+
+def _load_state(state_path: str) -> dict:
+    """Load index state from a JSON file.
+
+    Returns ``{source_label: {rel_path: {sha1, mtime, size}}}``.
+    If the file does not exist an empty dict is returned.
+    """
+    if not os.path.isfile(state_path):
+        return {}
+    with open(state_path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _save_state(state_path: str, state: dict) -> None:
+    """Persist *state* to a JSON file, creating parent directories."""
+    os.makedirs(os.path.dirname(os.path.abspath(state_path)), exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as fh:
+        json.dump(state, fh, indent=2, sort_keys=True)
+
+
+def _file_changed(abs_path: str, cached: dict | None) -> bool:
+    """Three-tier check whether *abs_path* has changed since it was cached.
+
+    Returns ``True`` when:
+    - *cached* is ``None`` (never seen before).
+    - ``os.stat`` fails — the file may be unreadable or gone.
+    - The cached ``sha1`` does not match the current content hash.
+
+    Returns ``False`` (fast path) when ``mtime`` **and** ``size`` are both
+    unchanged.
+    """
+    if cached is None:
+        return True
+
+    try:
+        st = os.stat(abs_path)
+    except OSError:
+        return True
+
+    if st.st_mtime_ns == cached["mtime"] and st.st_size == cached["size"]:
+        return False
+
+    sha1 = hashlib.sha1()
+    try:
+        with open(abs_path, "rb") as fh:
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                sha1.update(chunk)
+    except OSError:
+        return True
+
+    return sha1.hexdigest() != cached["sha1"]
+
+
+def crawl_source(
+    source_label: str, source_path: str, state_path: str
+) -> Iterator[FileEntry]:
+    """Walk a single source directory and yield :class:`FileEntry` items.
+
+    Files classified as ``"unknown"`` are skipped.  *state_path* is read via
+    :func:`_load_state` to decide whether each file needs indexing.
+    """
+    state = _load_state(state_path)
+    source_state = state.get(source_label, {})
+
+    for root, _dirs, files in os.walk(source_path):
+        for filename in files:
+            abs_path = os.path.join(root, filename)
+            file_type = _classify_file(filename)
+            if file_type == "unknown":
+                continue
+
+            rel_path = os.path.relpath(abs_path, source_path)
+            module = _detect_module(rel_path)
+            cached = source_state.get(rel_path)
+            needs_index = _file_changed(abs_path, cached)
+
+            yield FileEntry(
+                abs_path=abs_path,
+                rel_path=rel_path,
+                source_label=source_label,
+                source_module=module,
+                file_type=file_type,
+                needs_index=needs_index,
+            )
+
+
+def update_state(
+    state_path: str, source_label: str, entries: list[FileEntry]
+) -> None:
+    """Update the index state on disk for every entry in *entries*.
+
+    For each file the current ``sha1``, ``mtime`` (nanosecond precision) and
+    ``size`` are recorded under *source_label* in the state JSON.
+    """
+    state = _load_state(state_path)
+    source_state: dict = state.setdefault(source_label, {})
+
+    for entry in entries:
+        sha1 = hashlib.sha1()
+        try:
+            with open(entry.abs_path, "rb") as fh:
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
+                    sha1.update(chunk)
+        except OSError:
+            continue
+
+        try:
+            st = os.stat(entry.abs_path)
+        except OSError:
+            continue
+
+        source_state[entry.rel_path] = {
+            "sha1": sha1.hexdigest(),
+            "mtime": st.st_mtime_ns,
+            "size": st.st_size,
+        }
+
+    _save_state(state_path, state)
+
+
+def crawl_all(
+    doc_sources: dict[str, str], state_path: str
+) -> Iterator[FileEntry]:
+    """Iterate all document sources and yield :class:`FileEntry` items.
+
+    *doc_sources* maps ``source_label`` to ``source_path``.
+    """
+    for source_label, source_path in doc_sources.items():
+        yield from crawl_source(source_label, source_path, state_path)

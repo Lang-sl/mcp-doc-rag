@@ -1,0 +1,63 @@
+# RAG-Engine Configuration
+# Copy this file to config.yaml and fill in your paths:
+#   cp config.example.yaml config.yaml
+# Or run the setup script:
+#   python setup_config.py
+
+# ---- Paths (relative to rag-engine/ or absolute) ----
+chroma_dir: ./chroma_db
+symbol_index_path: ./symbol_index.json
+
+# ---- Document Sources ----
+# Format:  label: /absolute/path/to/documentation
+# Supported: Doxygen HTML, PDF, C++ headers (.h/.hpp/.hxx)
+doc_sources:
+  example_sdk: /path/to/your/sdk/docs
+
+# ---- Ollama ----
+ollama_host: http://localhost:11434
+embed_model: nomic-embed-text
+embed_dim: 768
+embed_batch_size: 32
+
+# ---- Reranker ----
+reranker_model: jinaai/jina-reranker-v2-base-multilingual
+reranker_max_length: 512
+
+# ---- Chunking ----
+chunk_max_chars: 2000
+
+# ---- Retrieval ----
+top_k_default: 10
+candidate_expand_factor: 4
+rrf_k: 30
+
+# ---- BM25 Field Weights ----
+bm25_weights:
+  symbol_name: 10.0
+  signature: 5.0
+  remarks: 1.0
+  example: 0.5
+
+# ---- Code Boost ----
+code_boost_ratio: 1.20
+code_boost_triggers:
+  - "how to"
+  - "create"
+  - "example"
+  - "sample"
+  - "write"
+  - "implement"
+  - "setup"
+
+# ---- Reference Expansion ----
+ref_expansion_max: 5
+
+# ---- Context Building ----
+context_max_tokens: 6000
+
+# ---- Cache ----
+cache_max_entries: 128
+
+# ---- Index ----
+index_batch_size: 100

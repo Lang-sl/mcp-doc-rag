@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ChromaDB data (generated locally)
+chroma_db/
+*.chroma/
+
+# User config (copy from config.example.yaml)
+config.yaml
+
+# Index state (generated locally)
+.index_state.json
+symbol_index.json
+*.index_state*.json
+
+# Ollama models (large, downloaded separately)
+ollama_models/
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
