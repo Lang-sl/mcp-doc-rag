@@ -1,4 +1,4 @@
-"""CLI entry point for the RAG engine."""
+"""CLI entry point for mcp-doc-rag."""
 from __future__ import annotations
 
 import argparse
@@ -47,7 +47,7 @@ def _print_reindex_summary(sources: dict[str, dict], total_chunks: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="rag",
-        description="Local RAG engine for C++ SDK documentation retrieval.",
+        description="Fully-local, MCP-native RAG system for C/C++ SDK documentation.",
     )
     sub = parser.add_subparsers(dest="command")
 

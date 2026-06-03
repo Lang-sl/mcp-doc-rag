@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive configuration setup for RAG-Engine.
+"""Interactive configuration setup for mcp-doc-rag.
 
 Run this script once after cloning the repository:
 
@@ -65,7 +65,7 @@ def check_ollama() -> bool:
 
 
 def main() -> int:
-    header("RAG-Engine Configuration Setup")
+    header("mcp-doc-rag Configuration Setup")
 
     # --- Step 1: Create config.yaml ---
     if TARGET.exists():

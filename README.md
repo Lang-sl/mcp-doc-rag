@@ -1,10 +1,10 @@
-# RAG-Engine
+# mcp-doc-rag
 
 **Fully local, MCP-integrated RAG system for C/C++ SDK documentation retrieval.**
 
 A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation (Doxygen HTML, PDFs, C++ headers) and exposes hybrid search via an MCP (Model Context Protocol) server — enabling AI coding assistants like Claude Code to retrieve precise API documentation on demand.
 
-## Why RAG-Engine
+## Why mcp-doc-rag
 
 - **100% Local** — No cloud API calls. Embeddings via Ollama, vectors in ChromaDB, reranker from HuggingFace. All data stays on your machine.
 - **MCP-Native** — Designed as an MCP server first. Claude Code (and other MCP clients) can auto-invoke RAG tools during coding.
@@ -63,8 +63,8 @@ ollama pull nomic-embed-text
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/rag-engine.git
-cd rag-engine
+git clone https://github.com/your-org/mcp-doc-rag.git
+cd mcp-doc-rag
 
 # Install in development mode
 pip install -e .
@@ -200,7 +200,7 @@ index_batch_size: 100
 
 ## MCP Server Integration
 
-RAG-Engine is an MCP server — AI assistants can call its tools directly.
+mcp-doc-rag is an MCP server — AI coding assistants can call its tools directly.
 
 ### Configuration for Claude Code
 
@@ -209,19 +209,19 @@ Add to `.claude/settings.local.json` (or `settings.json`):
 ```json
 {
   "mcpServers": {
-    "rag-engine": {
+    "mcp-doc-rag": {
       "command": "python",
       "args": ["-m", "rag.server"],
-      "cwd": "/path/to/rag-engine/src",
+      "cwd": "/path/to/mcp-doc-rag",
       "env": {
-        "RAG_CONFIG_PATH": "/path/to/rag-engine/config.yaml"
+        "RAG_CONFIG_PATH": "/path/to/mcp-doc-rag/config.yaml"
       }
     }
   }
 }
 ```
 
-Replace `/path/to/rag-engine` with the absolute path to your cloned repository.
+Replace `/path/to/mcp-doc-rag` with the absolute path to your cloned repository.
 
 After configuration, restart Claude Code or use `/mcp-reload`.
 
@@ -326,7 +326,7 @@ Query
 
 - **"0 chunks" after indexing.** Check that your document paths in config.yaml exist and contain supported file types. Run `python -m rag status` to verify.
 - **Ollama connection errors.** Ensure Ollama is running: `curl http://localhost:11434/api/tags`
-- **Import errors.** Run `pip install -e .` from the rag-engine directory to ensure all dependencies are installed.
+- **Import errors.** Run `pip install -e .` from the project directory to ensure all dependencies are installed.
 - **Symbol index is empty.** The symbol index is built after `reindex` completes. If indexing was interrupted, run `python -m rag reindex` again.
 
 ## Step-by-Step Verification (Tests)
@@ -392,7 +392,7 @@ pytest tests/ -v -k "not slow"
 ## Project Structure
 
 ```
-rag-engine/
+mcp-doc-rag/
 ├── pyproject.toml
 ├── setup_config.py            # Interactive config setup wizard
 ├── config.example.yaml        # Configuration template

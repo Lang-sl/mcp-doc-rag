@@ -1,10 +1,10 @@
-# RAG-Engine Configuration
+# mcp-doc-rag Configuration
 # Copy this file to config.yaml and fill in your paths:
 #   cp config.example.yaml config.yaml
 # Or run the setup script:
 #   python setup_config.py
 
-# ---- Paths (relative to rag-engine/ or absolute) ----
+# ---- Paths (relative to project root or absolute) ----
 chroma_dir: ./chroma_db
 symbol_index_path: ./symbol_index.json
 

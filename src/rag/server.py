@@ -354,7 +354,7 @@ def main() -> None:
                 "id": request_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "serverInfo": {"name": "rag-engine", "version": "0.1.0"},
+                    "serverInfo": {"name": "mcp-doc-rag", "version": "0.1.0"},
                     "capabilities": {"tools": {}},
                 },
             }

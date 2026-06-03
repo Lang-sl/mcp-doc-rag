@@ -1,1 +1,1 @@
-"""Tests for rag-engine."""
+"""Tests for mcp-doc-rag."""

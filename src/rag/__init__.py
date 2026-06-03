@@ -1,1 +1,1 @@
-"""Local RAG engine for C++ SDK documentation retrieval."""
+"""mcp-doc-rag — fully-local, MCP-native RAG for C/C++ SDK documentation."""

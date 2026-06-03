@@ -1,4 +1,4 @@
-"""Shared fixtures and utilities for RAG-Engine tests.
+"""Shared fixtures and utilities for mcp-doc-rag tests.
 
 Each test file represents one verification stage. Run stages in order:
   1 (no deps) → 7 (needs real files) → 8 (needs Ollama) → 9 (needs index) → 10 (full E2E)
