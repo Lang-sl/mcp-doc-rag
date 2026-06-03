@@ -14,7 +14,7 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 
 - **100% Local** — No cloud API calls. Embeddings via Ollama, vectors in ChromaDB, reranker from HuggingFace. All data stays on your machine.
 - **MCP-Native** — Designed as an MCP server first. Claude Code (and other MCP clients) can auto-invoke RAG tools during coding.
-- **Hybrid Search** — Combines field-weighted BM25 (symbol×10, signature×5) + vector ANN → RRF fusion → jina-reranker cross-encoder → code boost → reference expansion.
+- **Hybrid Search** — Combines field-weighted BM25 (symbol×10, signature×5) + vector ANN → RRF fusion → conditional jina-reranker cross-encoder → code boost → reference expansion. Reranker is automatically skipped for symbol/API identifier queries (e.g. `MwMultiAxis::CalculateToolpath`) to keep latency low.
 - **Structured Chunking** — Doxygen-aware HTML parser extracts symbol_id, class, function, signature, params, return type, remarks, and code examples into structured JSON chunks.
 - **O(1) Symbol Lookup** — Exact symbol ID lookup via in-memory hash index, bypassing full search for known API names.
 - **Incremental Indexing** — SHA1 content hashing with mtime/size pre-filter. Only re-indexes changed files.

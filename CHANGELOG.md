@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **BM25 indices are now cached in memory** — first search builds indices once; subsequent searches reuse them. Cache auto-invalidates when ChromaDB collections change (chunk count mismatch).
+- **Reranker is skipped for symbol/API lookups** — exact symbol queries (`Foo::bar`, `MwMultiAxis`) and MCP tools (`get_api_class`, `get_api_function`) bypass the expensive CPU cross-encoder, falling straight through to RRF-fused BM25+vector scores.
+- `search_docs` / `get_api_class` / `get_api_function` handlers pass `skip_rerank=True` for identifier queries.
+- `HybridRetriever.invalidate_cache()` added; called automatically after `reindex`.
+
 ## [0.1.0] — 2026-06-03
 
 ### Added

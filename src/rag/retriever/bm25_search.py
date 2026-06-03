@@ -1,9 +1,13 @@
-"""Field-weighted BM25 keyword search with per-collection indexing."""
+"""Field-weighted BM25 keyword search with per-collection index caching.
+
+BM25Okapi indices are built once and cached in memory.  Subsequent searches
+reuse the cached indices unless the underlying ChromaDB collection has
+changed (detected via chunk count).
+"""
 
 from __future__ import annotations
 
 import chromadb
-from rank_bm25 import BM25Okapi
 
 from rag.config import Config
 from rag.models import Chunk, SearchResult
@@ -12,6 +16,206 @@ from rag.models import Chunk, SearchResult
 def _tokenize(text: str) -> list[str]:
     """Simple whitespace tokenizer, lowercase."""
     return text.lower().split()
+
+
+class BM25Searcher:
+    """Cached field-weighted BM25 search across ChromaDB collections.
+
+    Builds :class:`rank_bm25.BM25Okapi` indices per collection on first use
+    and reuses them on subsequent searches.  Indices are automatically
+    invalidated when a collection's chunk count changes (e.g. after reindex).
+    """
+
+    def __init__(self):
+        self._cache: dict[str, dict] = {}
+        self._counts: dict[str, int] = {}
+
+    def clear(self) -> None:
+        """Clear all cached indices (call after reindex)."""
+        self._cache.clear()
+        self._counts.clear()
+
+    def _get_collection_names(
+        self,
+        client: chromadb.PersistentClient,
+        source_label: str | None,
+    ) -> list[str]:
+        """Return collection names filtered by optional source_label prefix."""
+        all_names = [c.name for c in client.list_collections()]
+
+        if source_label is not None:
+            prefix = f"{source_label}."
+            matching = [n for n in all_names if n.startswith(prefix)]
+            if matching:
+                return matching
+
+        return all_names
+
+    def _build_indices(
+        self,
+        client: chromadb.PersistentClient,
+        collection_names: list[str],
+    ) -> None:
+        """Build BM25Okapi indices for collections not already cached."""
+        from rank_bm25 import BM25Okapi
+
+        for name in collection_names:
+            try:
+                collection = client.get_collection(name)
+                current_count = collection.count()
+            except Exception:
+                continue
+
+            # Skip if cache is still valid for this collection
+            if name in self._cache and self._counts.get(name) == current_count:
+                continue
+
+            try:
+                data = collection.get(include=["metadatas", "documents"])
+            except Exception:
+                continue
+
+            ids = data.get("ids", [])
+            metadatas = data.get("metadatas", [])
+            documents = data.get("documents", [])
+
+            if not ids:
+                self._cache.pop(name, None)
+                self._counts.pop(name, None)
+                continue
+
+            chunks: list[dict] = []
+            symbol_corpus: list[list[str]] = []
+            signature_corpus: list[list[str]] = []
+            remarks_corpus: list[list[str]] = []
+            example_corpus: list[list[str]] = []
+
+            for chunk_id, metadata, document in zip(ids, metadatas, documents):
+                meta = metadata or {}
+                doc = document or ""
+
+                chunks.append({"id": chunk_id, "metadata": meta, "document": doc})
+                symbol_corpus.append(_tokenize(meta.get("symbol_id") or ""))
+                signature_corpus.append(_tokenize(meta.get("signature") or ""))
+                remarks_corpus.append(_tokenize(doc))
+                example_corpus.append(_tokenize(meta.get("example") or ""))
+
+            def _mk_bm25(corpus: list[list[str]]) -> BM25Okapi | None:
+                if any(corpus):
+                    try:
+                        return BM25Okapi(corpus)
+                    except Exception:
+                        return None
+                return None
+
+            self._cache[name] = {
+                "symbol_bm25": _mk_bm25(symbol_corpus),
+                "signature_bm25": _mk_bm25(signature_corpus),
+                "remarks_bm25": _mk_bm25(remarks_corpus),
+                "example_bm25": _mk_bm25(example_corpus),
+                "chunks": chunks,
+            }
+            self._counts[name] = current_count
+
+    def search(
+        self,
+        client: chromadb.PersistentClient,
+        config: Config,
+        query: str,
+        top_k: int,
+        source_label: str | None = None,
+    ) -> list[SearchResult]:
+        """Field-weighted BM25 keyword search with cached indices.
+
+        Same scoring algorithm as :func:`bm25_search`.
+        """
+        query_tokens = _tokenize(query)
+        if not query_tokens:
+            return []
+
+        collection_names = self._get_collection_names(client, source_label)
+
+        # Build / refresh cached indices for relevant collections
+        self._build_indices(client, collection_names)
+
+        query_lower = query.lower()
+        enable_example = any(
+            trigger in query_lower
+            for trigger in ["example", "code", "sample", "how to"]
+        )
+
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        w = config.bm25_weights
+
+        for name in collection_names:
+            cached = self._cache.get(name)
+            if cached is None:
+                continue
+
+            chunks = cached["chunks"]
+            if not chunks:
+                continue
+
+            n = len(chunks)
+
+            sym = [0.0] * n
+            sig = [0.0] * n
+            rem = [0.0] * n
+            ex = [0.0] * n
+
+            if cached["symbol_bm25"] is not None:
+                try:
+                    sym = cached["symbol_bm25"].get_scores(query_tokens)
+                except Exception:
+                    pass
+
+            if cached["signature_bm25"] is not None:
+                try:
+                    sig = cached["signature_bm25"].get_scores(query_tokens)
+                except Exception:
+                    pass
+
+            if cached["remarks_bm25"] is not None:
+                try:
+                    rem = cached["remarks_bm25"].get_scores(query_tokens)
+                except Exception:
+                    pass
+
+            if enable_example and cached["example_bm25"] is not None:
+                try:
+                    ex = cached["example_bm25"].get_scores(query_tokens)
+                except Exception:
+                    pass
+
+            for i, c in enumerate(chunks):
+                total = (
+                    w.symbol_name * sym[i]
+                    + w.signature * sig[i]
+                    + w.remarks * rem[i]
+                    + w.example * ex[i]
+                )
+
+                if total <= 0.0:
+                    continue
+
+                chunk = Chunk.from_metadata(c["metadata"], c["document"])
+
+                if chunk.chunk_id in seen:
+                    continue
+                seen.add(chunk.chunk_id)
+
+                results.append(SearchResult(chunk=chunk, score=total))
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible standalone function (uses cached module-level singleton)
+# ---------------------------------------------------------------------------
+
+_bm25_searcher: BM25Searcher | None = None
 
 
 def _get_all_chunks_from_collections(
@@ -70,108 +274,13 @@ def bm25_search(
     top_k: int,
     source_label: str | None = None,
 ) -> list[SearchResult]:
-    """Field-weighted BM25 keyword search across matching ChromaDB collections.
+    """Field-weighted BM25 keyword search (uses cached module singleton).
 
-    1. Get all chunks from matching collections (filtered by source_label prefix)
-    2. For each collection, build 3 BM25 corpora from chunk metadata:
-       - ``symbol_corpus``: tokenize ``symbol_id``, weighted by
-         ``config.bm25_weights.symbol_name``
-       - ``signature_corpus``: tokenize ``signature``, weighted by
-         ``config.bm25_weights.signature``
-       - ``remarks_corpus``: tokenize ``document`` (embed_text), weighted by
-         ``config.bm25_weights.remarks``
-    3. Optionally score the example field when the query contains trigger words
-       ("example", "code", "sample", "how to").
-    4. Compute weighted sum per chunk, deduplicate by ``chunk_id``, and return
-       the top *top_k* results sorted by descending score.
+    Prefer :class:`BM25Searcher` for repeated searches where you control
+    the instance lifecycle.  This function delegates to a module-level
+    singleton for backward compatibility.
     """
-    collections_data = _get_all_chunks_from_collections(client, source_label)
-
-    query_tokens = _tokenize(query)
-    if not query_tokens:
-        return []
-
-    query_lower = query.lower()
-    enable_example = any(
-        trigger in query_lower for trigger in ["example", "code", "sample", "how to"]
-    )
-
-    results: list[SearchResult] = []
-    seen: set[str] = set()
-
-    for _collection_name, chunks in collections_data.items():
-        if not chunks:
-            continue
-
-        n = len(chunks)
-
-        # Build tokenized corpora from metadata fields
-        symbol_corpus: list[list[str]] = []
-        signature_corpus: list[list[str]] = []
-        remarks_corpus: list[list[str]] = []
-        example_corpus: list[list[str]] = []
-
-        for c in chunks:
-            metadata = c["metadata"]
-            document = c["document"]
-
-            symbol_corpus.append(_tokenize(metadata.get("symbol_id") or ""))
-            signature_corpus.append(_tokenize(metadata.get("signature") or ""))
-            remarks_corpus.append(_tokenize(document))
-            example_corpus.append(_tokenize(metadata.get("example") or ""))
-
-        # Compute per-field BM25 scores (skip fields with no tokens)
-        symbol_scores: list[float] = [0.0] * n
-        sig_scores: list[float] = [0.0] * n
-        rem_scores: list[float] = [0.0] * n
-        ex_scores: list[float] = [0.0] * n
-
-        if any(symbol_corpus):
-            try:
-                symbol_scores = BM25Okapi(symbol_corpus).get_scores(query_tokens)
-            except Exception:
-                pass
-
-        if any(signature_corpus):
-            try:
-                sig_scores = BM25Okapi(signature_corpus).get_scores(query_tokens)
-            except Exception:
-                pass
-
-        if any(remarks_corpus):
-            try:
-                rem_scores = BM25Okapi(remarks_corpus).get_scores(query_tokens)
-            except Exception:
-                pass
-
-        if enable_example and any(example_corpus):
-            try:
-                ex_scores = BM25Okapi(example_corpus).get_scores(query_tokens)
-            except Exception:
-                pass
-
-        # Compute weighted totals and assemble results
-        w = config.bm25_weights
-
-        for i, c in enumerate(chunks):
-            total = (
-                w.symbol_name * symbol_scores[i]
-                + w.signature * sig_scores[i]
-                + w.remarks * rem_scores[i]
-                + w.example * ex_scores[i]
-            )
-
-            if total <= 0.0:
-                continue
-
-            metadata = c["metadata"]
-            chunk = Chunk.from_metadata(metadata, c["document"])
-
-            if chunk.chunk_id in seen:
-                continue
-            seen.add(chunk.chunk_id)
-
-            results.append(SearchResult(chunk=chunk, score=total))
-
-    results.sort(key=lambda r: r.score, reverse=True)
-    return results[:top_k]
+    global _bm25_searcher
+    if _bm25_searcher is None:
+        _bm25_searcher = BM25Searcher()
+    return _bm25_searcher.search(client, config, query, top_k, source_label)

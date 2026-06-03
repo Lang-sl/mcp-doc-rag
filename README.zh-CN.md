@@ -14,7 +14,7 @@
 
 - **100% 本地** — 无云端 API 调用。嵌入用 Ollama，向量数据库用 ChromaDB，重排序器来自 HuggingFace。所有数据留存在你的机器上。
 - **MCP 原生** — 优先作为 MCP 服务器设计。Claude Code（及其他 MCP 客户端）可在编码时自动调用 RAG 工具。
-- **混合搜索** — 结合字段加权 BM25（符号×10、签名×5）+ 向量 ANN → RRF 融合 → jina-reranker 跨编码器 → 代码加权 → 引用扩展。
+- **混合搜索** — 结合字段加权 BM25（符号×10、签名×5）+ 向量 ANN → RRF 融合 → 条件性 jina-reranker 跨编码器 → 代码加权 → 引用扩展。对于符号/API 标识符查询（如 `MwMultiAxis::CalculateToolpath`）自动跳过 reranker，保持低延迟。
 - **结构化分块** — Doxygen 感知的 HTML 解析器提取 symbol_id、类、函数、签名、参数、返回类型、备注和代码示例到结构化 JSON chunk 中。
 - **O(1) 符号查找** — 通过内存哈希索引精确定位符号，对已知 API 名称绕过全量搜索。
 - **增量索引** — SHA1 内容哈希 + mtime/size 预过滤。仅重新索引变更文件。

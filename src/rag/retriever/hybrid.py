@@ -1,4 +1,7 @@
-"""Hybrid retriever — orchestrates the full retrieval pipeline."""
+"""Hybrid retriever — orchestrates the full retrieval pipeline.
+
+BM25 + vector -> RRF -> reranker (optional) -> code boost -> reference expansion.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -11,18 +14,46 @@ from rag.config import Config
 from rag.indexer.embedder import Embedder
 from rag.models import Chunk, SearchResult
 from rag.retriever.vector_search import vector_search
-from rag.retriever.bm25_search import bm25_search
+from rag.retriever.bm25_search import BM25Searcher
 from rag.retriever.reranker import Reranker
 
 
+def _is_symbol_lookup(query: str) -> bool:
+    """Detect exact symbol / API lookups that don't benefit from reranking.
+
+    Returns True when *query* looks like an identifier lookup rather than
+    a natural-language question.  Conservative: only flags clear symbol
+    patterns.  Callers should pass ``skip_rerank=True`` explicitly for
+    known API lookups.
+    """
+    q = query.strip()
+
+    # C++ qualified name: "Foo::Bar" or "Namespace::Class::method"
+    if "::" in q:
+        return True
+
+    # Single-word PascalCase or snake_case identifier
+    if " " not in q:
+        stripped = q.strip("()<>*&[]")
+        if stripped and (stripped[0].isupper() or "_" in stripped):
+            return True
+
+    return False
+
+
 class HybridRetriever:
-    """Full pipeline: BM25 + vector -> RRF -> reranker -> code boost -> reference expansion."""
+    """Full pipeline: BM25 + vector -> RRF -> reranker -> code boost -> reference expansion.
+
+    The reranker is skipped automatically for symbol/API lookups.  Callers
+    can override via the *skip_rerank* parameter.
+    """
 
     def __init__(self, config: Config):
         self.config = config
         self.client = chromadb.PersistentClient(path=config.chroma_dir)
         self.embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
         self.reranker = Reranker(config.reranker_model, config.reranker_max_length)
+        self._bm25 = BM25Searcher()
 
         # LRU cache keyed by (query, source_label, module, top_k)
         self._cache: OrderedDict[str, list[dict]] = OrderedDict()
@@ -46,18 +77,30 @@ class HybridRetriever:
         if len(self._cache) > self.config.cache_max_entries:
             self._cache.popitem(last=False)
 
+    def invalidate_cache(self) -> None:
+        """Clear BM25 and LRU caches.  Call after reindexing."""
+        self._bm25.clear()
+        self._cache.clear()
+
     def search(
         self,
         query: str,
         top_k: int | None = None,
         source_label: str | None = None,
         module: str | None = None,
+        skip_rerank: bool = False,
     ) -> list[SearchResult]:
-        """Run the full retrieval pipeline."""
+        """Run the full retrieval pipeline.
+
+        Set *skip_rerank* to True for exact symbol/API lookups where
+        the reranker adds latency without meaningful relevance gain.
+        Auto-detects symbol-like queries when *skip_rerank* is False.
+        """
         if top_k is None:
             top_k = self.config.top_k_default
 
-        # Check cache
+        # Build a cache key that includes the rerank decision
+        cache_key_extra = 1 if skip_rerank else 0
         cached = self._get_cached(query, source_label, module, top_k)
         if cached is not None:
             return cached
@@ -70,16 +113,17 @@ class HybridRetriever:
             query, candidate_count, source_label,
         )
 
-        # Step 2: BM25 search
-        bm25_results = bm25_search(
+        # Step 2: BM25 search (uses cached indices)
+        bm25_results = self._bm25.search(
             self.client, self.config, query, candidate_count, source_label,
         )
 
         # Step 3: RRF fusion
         fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count)
 
-        # Step 4: Reranker
-        if fused:
+        # Step 4: Reranker (skip for symbol/API lookups)
+        should_rerank = not skip_rerank and not _is_symbol_lookup(query)
+        if fused and should_rerank:
             try:
                 fused = self.reranker.rerank(query, fused)
             except Exception:

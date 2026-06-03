@@ -69,7 +69,7 @@ def handle_get_api_class(class_name: str) -> dict | None:
     symbol = _symbol_index.lookup(class_name)
     if symbol and symbol.get("type") == "class":
         # Search for all chunks belonging to this class
-        results = _retriever.search(class_name, top_k=20, source_label=symbol.get("source_label"))
+        results = _retriever.search(class_name, top_k=20, source_label=symbol.get("source_label"), skip_rerank=True)
         class_chunks = [
             r for r in results
             if r.chunk.class_name == class_name and r.chunk.type != "narrative"
@@ -83,7 +83,7 @@ def handle_get_api_class(class_name: str) -> dict | None:
             }
 
     # Fallback: pure search
-    results = _retriever.search(f"class {class_name}", top_k=15)
+    results = _retriever.search(f"class {class_name}", top_k=15, skip_rerank=True)
     if results:
         return {
             "class_name": class_name,
@@ -108,6 +108,7 @@ def handle_get_api_function(func_name: str, class_name: str | None = None) -> di
             func_name,
             top_k=5,
             source_label=symbol.get("source_label"),
+            skip_rerank=True,
         )
         return {
             "function_name": func_name,
@@ -119,7 +120,7 @@ def handle_get_api_function(func_name: str, class_name: str | None = None) -> di
 
     # Fallback
     query = f"{class_name}::{func_name}" if class_name else func_name
-    results = _retriever.search(query, top_k=10)
+    results = _retriever.search(query, top_k=10, skip_rerank=True)
     if results:
         return {
             "function_name": func_name,
@@ -199,6 +200,9 @@ def handle_reindex(source_label: str | None = None) -> dict:
 
     # Rebuild symbol index after indexing
     _build_symbol_index_from_db()
+
+    # Invalidate retriever caches so next search picks up new data
+    _retriever.invalidate_cache()
 
     return result
 
