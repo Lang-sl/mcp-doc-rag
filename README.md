@@ -1,5 +1,10 @@
 # mcp-doc-rag
 
+[![CI](https://github.com/Lang-sl/mcp-doc-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/Lang-sl/mcp-doc-rag/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-native-purple)](https://modelcontextprotocol.io/)
+
 **Fully local, MCP-integrated RAG system for C/C++ SDK documentation retrieval.**
 
 A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation (Doxygen HTML, PDFs, C++ headers) and exposes hybrid search via an MCP (Model Context Protocol) server — enabling AI coding assistants like Claude Code to retrieve precise API documentation on demand.

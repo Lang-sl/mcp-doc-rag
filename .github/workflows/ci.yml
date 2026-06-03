@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Run unit tests (stages 1–6, no external deps)
+        run: |
+          pytest tests/test_01_config.py \
+                 tests/test_02_source_manager.py \
+                 tests/test_03_symbol_index.py \
+                 tests/test_04_parser.py \
+                 tests/test_05_chunker.py \
+                 tests/test_06_context_builder.py \
+                 -v

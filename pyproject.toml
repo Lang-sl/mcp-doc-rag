@@ -5,7 +5,38 @@ build-backend = "setuptools.build_meta:__legacy__"
 [project]
 name = "mcp-doc-rag"
 version = "0.1.0"
+description = "Fully-local RAG for C/C++ SDK docs — Doxygen-aware, MCP-native, hybrid BM25+vector search"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "mcp-doc-rag Contributors"},
+]
 requires-python = ">=3.11"
+keywords = [
+    "rag",
+    "doxygen",
+    "cpp",
+    "mcp",
+    "model-context-protocol",
+    "chromadb",
+    "ollama",
+    "documentation",
+    "sdk",
+    "retrieval-augmented-generation",
+    "local",
+    "offline",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "chromadb>=0.5",
     "ollama>=0.4",
@@ -21,6 +52,11 @@ dependencies = [
 
 [project.scripts]
 rag = "rag.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Lang-sl/mcp-doc-rag"
+Repository = "https://github.com/Lang-sl/mcp-doc-rag"
+Issues = "https://github.com/Lang-sl/mcp-doc-rag/issues"
 
 [tool.setuptools.package-dir]
 "" = "src"
