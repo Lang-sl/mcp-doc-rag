@@ -210,26 +210,35 @@ mcp-doc-rag 是一个 MCP 服务器——AI 编程助手可以直接调用其工
 
 ### Claude Code 配置
 
-在 `.claude/settings.local.json`（或 `settings.json`）中添加：
+在**项目根目录**（运行 `claude` 的目录）创建 `.mcp.json`。这是推荐的配置方式——`.mcp.json` 是专用的 MCP 配置文件，`settings.local.json` 已不再支持 `mcpServers` 字段。
 
 ```json
 {
   "mcpServers": {
     "mcp-doc-rag": {
+      "type": "stdio",
       "command": "python",
       "args": ["-m", "rag.server"],
-      "cwd": "/path/to/mcp-doc-rag",
+      "cwd": "D:/rag/mcp-doc-rag",
       "env": {
-        "RAG_CONFIG_PATH": "/path/to/mcp-doc-rag/config.yaml"
+        "RAG_CONFIG_PATH": "D:/rag/mcp-doc-rag/config.yaml"
       }
     }
   }
 }
 ```
 
-将 `/path/to/mcp-doc-rag` 替换为你的仓库绝对路径。
+将路径替换为你的仓库绝对路径。即使在 Windows 上也请使用正斜杠。
 
-配置完成后，重启 Claude Code 或使用 `/mcp-reload`。
+**其他作用域**（根据需求选择）：
+
+| 作用域 | 文件位置 | 适用场景 |
+|--------|---------|----------|
+| **project**（推荐） | 项目根目录 `.mcp.json` | 团队共享，可提交到版本控制 |
+| **user** | `~/.claude/mcp.json` | 个人工具，在所有项目中可用 |
+| **local** | `~/.config/claude/mcp.json` | 本机专属配置、本地凭据 |
+
+配置完成后，重启 Claude Code。使用 `/mcp` 验证服务器是否已加载。
 
 ### 可用 MCP 工具
 

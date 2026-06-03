@@ -210,26 +210,35 @@ mcp-doc-rag is an MCP server — AI coding assistants can call its tools directl
 
 ### Configuration for Claude Code
 
-Add to `.claude/settings.local.json` (or `settings.json`):
+Create `.mcp.json` at your **project root** (the directory where you run `claude`). This is the recommended approach — `.mcp.json` is the dedicated MCP configuration file, and `settings.local.json` no longer supports `mcpServers`.
 
 ```json
 {
   "mcpServers": {
     "mcp-doc-rag": {
+      "type": "stdio",
       "command": "python",
       "args": ["-m", "rag.server"],
-      "cwd": "/path/to/mcp-doc-rag",
+      "cwd": "D:/rag/mcp-doc-rag",
       "env": {
-        "RAG_CONFIG_PATH": "/path/to/mcp-doc-rag/config.yaml"
+        "RAG_CONFIG_PATH": "D:/rag/mcp-doc-rag/config.yaml"
       }
     }
   }
 }
 ```
 
-Replace `/path/to/mcp-doc-rag` with the absolute path to your cloned repository.
+Replace paths with the absolute path to your cloned repository. Use forward slashes even on Windows.
 
-After configuration, restart Claude Code or use `/mcp-reload`.
+**Alternative scopes** (choose based on your needs):
+
+| Scope | File Location | Use Case |
+|-------|--------------|----------|
+| **project** (recommended) | `.mcp.json` at project root | Team-shared, commit to version control |
+| **user** | `~/.claude/mcp.json` | Personal tools available across all projects |
+| **local** | `~/.config/claude/mcp.json` | Machine-specific configs, local credentials |
+
+After configuration, restart Claude Code. Use `/mcp` to verify the server is loaded.
 
 ### Available MCP Tools
 
