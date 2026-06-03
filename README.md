@@ -68,7 +68,7 @@ ollama pull nomic-embed-text
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/mcp-doc-rag.git
+git clone https://github.com/Lang-sl/mcp-doc-rag.git
 cd mcp-doc-rag
 
 # Install in development mode
