@@ -1,9 +1,9 @@
-"""Stage 10: Full end-to-end pipeline.
+"""Stage 11: Full end-to-end pipeline.
 
 Needs: Ollama running + document files available.
 Set RAG_TEST_DOC_DIR to a directory with Doxygen HTML or PDF files.
 
-    RAG_TEST_DOC_DIR=/path/to/docs pytest tests/test_10_e2e.py -v -m slow
+    RAG_TEST_DOC_DIR=/path/to/docs pytest tests/test_11_e2e.py -v -m slow
 
 Or skip with:
 

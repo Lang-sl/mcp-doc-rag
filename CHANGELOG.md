@@ -6,21 +6,30 @@
 - Evaluation system: `python -m rag eval` CLI with Recall@K, MRR, NDCG@K metrics and latency percentiles
 - Query Rewrite (rule-based): domain synonym-based query expansion for BM25 search, improving recall for natural-language queries
 - `tests/eval/queries.jsonl`: annotated query evaluation dataset (35 pairs for baseline measurement)
+- **BM25-Vector weighted RRF fusion**: BM25 contribution weight configurable via `rrf_bm25_weight` (default 2.0). Improves Recall@1 for API/symbol name queries by prioritizing exact keyword matches over semantic similarity.
+- **Embedding cache**: disk-based cache keyed by `sha256(embed_text + model)`, skipping redundant Ollama embedding computation on incremental reindex. Cache-hit reindex embed phase drops from 1-2 minutes to near-instant.
+- **BM25 disk persistence**: pickle tokenized corpora for fast process restart. BM25Searcher loads from disk instead of pulling full ChromaDB data, reducing first-query-after-restart latency from 1-5s to <0.1s.
+
+### Added (config)
+- `query_rewrite_enabled: true`
+- `query_rewrite_max_variants: 3`
+- `rrf_bm25_weight: 2.0`
+- `embedding_cache_dir: ./chroma_db/embedding_cache`
+- `bm25_cache_dir: ./chroma_db/bm25_cache`
 
 ### Changed
 - `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
 - `handle_search_docs` in MCP server enables query rewrite by default
 - `Config` dataclass extended with `query_rewrite_enabled` and `query_rewrite_max_variants` fields
-
-### Added (config)
-- `query_rewrite_enabled: true`
-- `query_rewrite_max_variants: 3`
-
-### Changed
 - **BM25 indices are now cached in memory** — first search builds indices once; subsequent searches reuse them. Cache auto-invalidates when ChromaDB collections change (chunk count mismatch).
 - **Reranker is skipped for symbol/API lookups** — exact symbol queries (`Foo::bar`, `MwMultiAxis`) and MCP tools (`get_api_class`, `get_api_function`) bypass the expensive CPU cross-encoder, falling straight through to RRF-fused BM25+vector scores.
 - `search_docs` / `get_api_class` / `get_api_function` handlers pass `skip_rerank=True` for identifier queries.
 - `HybridRetriever.invalidate_cache()` added; called automatically after `reindex`.
+- `_rrf_fuse()` now accepts `bm25_weight` parameter (backward-compatible, default 1.0)
+- `Embedder` now accepts optional `cache` parameter for EmbeddingCache integration
+- `BM25Searcher` now accepts optional `cache_dir` parameter for disk persistence
+- `_store_chunks()` returns `(count, affected_collections)` and orchestrator builds BM25 disk cache after storing
+- `HybridRetriever` passes `bm25_cache_dir` to `BM25Searcher`
 
 ## [0.1.0] — 2026-06-03
 

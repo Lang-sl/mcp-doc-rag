@@ -53,7 +53,7 @@ class HybridRetriever:
         self.client = chromadb.PersistentClient(path=config.chroma_dir)
         self.embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
         self.reranker = Reranker(config.reranker_model, config.reranker_max_length)
-        self._bm25 = BM25Searcher()
+        self._bm25 = BM25Searcher(cache_dir=config.bm25_cache_dir)
 
         # LRU cache keyed by (query, source_label, module, top_k)
         self._cache: OrderedDict[str, list[dict]] = OrderedDict()
@@ -145,7 +145,7 @@ class HybridRetriever:
                 bm25_results = bm25_results[:candidate_count]
 
         # Step 3: RRF fusion
-        fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count)
+        fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count, self.config.rrf_bm25_weight)
 
         # Step 4: Reranker (skip for symbol/API lookups)
         should_rerank = not skip_rerank and not _is_symbol_lookup(query)
@@ -185,8 +185,14 @@ def _rrf_fuse(
     bm25_results: list[SearchResult],
     k: int,
     max_results: int,
+    bm25_weight: float = 1.0,
 ) -> list[SearchResult]:
-    """Reciprocal Rank Fusion of two ranked lists."""
+    """Reciprocal Rank Fusion of two ranked lists.
+
+    *bm25_weight* multiplies the BM25 contribution in RRF scoring.
+    A value > 1.0 makes keyword matches rank higher than semantic
+    matches at the same rank position (default 1.0 = equal weight).
+    """
     rrf_scores: dict[str, tuple[float, SearchResult]] = {}
 
     for rank, r in enumerate(vec_results[:max_results], start=1):
@@ -198,7 +204,7 @@ def _rrf_fuse(
             rrf_scores[r.chunk.chunk_id] = (rrf, r)
 
     for rank, r in enumerate(bm25_results[:max_results], start=1):
-        rrf = 1.0 / (k + rank)
+        rrf = bm25_weight / (k + rank)
         if r.chunk.chunk_id in rrf_scores:
             prev_score, prev_result = rrf_scores[r.chunk.chunk_id]
             rrf_scores[r.chunk.chunk_id] = (prev_score + rrf, prev_result)

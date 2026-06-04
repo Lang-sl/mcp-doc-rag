@@ -43,6 +43,9 @@ class Config:
     index_batch_size: int = 500
     query_rewrite_enabled: bool = True
     query_rewrite_max_variants: int = 3
+    rrf_bm25_weight: float = 2.0
+    embedding_cache_dir: str = "./chroma_db/embedding_cache"
+    bm25_cache_dir: str = "./chroma_db/bm25_cache"
 
 
 _DEFAULT_CONFIG_PATH = "./config.yaml"
@@ -137,6 +140,9 @@ def load_config(path: Optional[str] = None) -> Config:
         index_batch_size=_get("index_batch_size", defaults.index_batch_size),
         query_rewrite_enabled=_get("query_rewrite_enabled", defaults.query_rewrite_enabled),
         query_rewrite_max_variants=_get("query_rewrite_max_variants", defaults.query_rewrite_max_variants),
+        rrf_bm25_weight=_get("rrf_bm25_weight", defaults.rrf_bm25_weight),
+        embedding_cache_dir=_resolve_path(_get("embedding_cache_dir", defaults.embedding_cache_dir), config_dir),
+        bm25_cache_dir=_resolve_path(_get("bm25_cache_dir", defaults.bm25_cache_dir), config_dir),
     )
 
 

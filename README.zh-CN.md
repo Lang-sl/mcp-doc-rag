@@ -215,6 +215,7 @@ chunk_max_chars: 2000
 top_k_default: 10
 candidate_expand_factor: 4
 rrf_k: 30
+rrf_bm25_weight: 2.0  # >1.0 表示 BM25 关键词匹配在 RRF 中权重更高
 
 # ---- BM25 字段权重 ----
 bm25_weights:
@@ -246,6 +247,8 @@ query_rewrite_max_variants: 3
 
 # ---- 缓存 ----
 cache_max_entries: 128
+embedding_cache_dir: ./chroma_db/embedding_cache
+bm25_cache_dir: ./chroma_db/bm25_cache
 
 # ---- 索引 ----
 index_batch_size: 100
@@ -382,18 +385,19 @@ Query
 
 ### 评估基线
 
-基于生产级 C++ SDK 文档索引、35 条标注查询（12 条 API 查找 + 23 条自然语言）的实测数据：
+基于生产级 C++ SDK 文档索引、35 条标注查询（12 条 API 查找 + 23 条自然语言）的实测数据。RRF 加权（`rrf_bm25_weight: 2.0`）通过优先匹配精确关键词显著提升了早期排位召回率。
 
 | 指标 | 未启用改写 | 启用查询改写 |
 |------|----------|-------------|
-| Recall@1 | 0.107 | **0.117** (+9.3%) |
+| Recall@1 | 0.364 | **0.374** (+2.7%) |
 | Recall@5 | 0.533 | 0.533 |
 | Recall@10 | 0.648 | **0.657** (+1.4%) |
-| MRR | 0.382 | **0.405** (+6.0%) |
-| NDCG@5 | 0.431 | **0.442** (+2.6%) |
-| p50 延迟 | 368ms | 436ms |
+| MRR | 0.516 | **0.538** (+4.3%) |
+| NDCG@5 | 0.529 | **0.541** (+2.3%) |
+| NDCG@10 | 0.573 | **0.585** (+2.1%) |
+| p50 延迟 | 375ms | 460ms |
 
-查询改写通过对自然语言查询生成 BM25 同义词变体，提升了早期排位指标（Recall@1、MRR）。运行你自己的基线：
+与 Plan 01 基线（等权 RRF，无改写：Recall@1 0.107、MRR 0.382）相比，BM25 加权 RRF 为 API/符号名称查询带来了 **3.4 倍 Recall@1 提升**。查询改写在此基础上再增加 2-4%。运行你自己的基线：
 
 ```bash
 python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
@@ -405,7 +409,10 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 ### 性能
 
 - **首次索引。** 嵌入通过 Ollama 批量 API 一次性全局批量执行——~10k chunk 的嵌入只需 1-2 分钟，而非几十分钟。后续增量索引很快（秒级——不变更的文件通过 mtime/size 预检查跳过）。
+- **嵌入缓存。** 增量索引通过 `sha256(embed_text + model)` 磁盘缓存跳过未变更文本的 Ollama 调用。缓存命中时二次索引嵌入阶段近乎瞬间完成（< 5s）。缓存位置见 `embedding_cache_dir`。
+- **BM25 磁盘持久化。** BM25 分词语料持久化到磁盘（`bm25_cache_dir`）。MCP 服务器重启后首次查询从磁盘加载而非从 ChromaDB 全量拉取，冷启动延迟从 1-5s 降至 < 0.1s。
 - **流水线阶段。** `python -m rag reindex` 会打印每个阶段的耗时（crawl, parse, chunk, embed, chroma），便于精确定位时间消耗。嵌入通常占总时间不到 30%。
+- **RRF 加权。** BM25 关键词匹配在 RRF 融合中获得 2 倍权重（`rrf_bm25_weight: 2.0`），显著提升 API/符号名称查询的 Recall@1，同时不影响自然语言搜索质量。
 - **Ollama 必须在运行。** 使用 `ollama serve` 启动或确保 Windows 服务正在运行。
 - **重排序器下载。** 首次 `search_docs` 调用会下载 jina-reranker 模型（~1.1GB），仅此一次。索引后运行一次测试搜索可提前下载。重排序器包含 transformers >= 4.46 的自动兼容性补丁。
 - **ChromaDB 存储。** 向量数据库默认存放在项目目录下的 `./chroma_db`。对于大型文档集可能增长到数 GB——如需其他位置，请在 config.yaml 中配置 `chroma_dir`。
@@ -434,7 +441,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 
 ## 分步验证（测试）
 
-测试套件按 10 个编号阶段组织——按顺序运行以逐层验证系统的每个部分。每个阶段都建立在前一个阶段之上。
+测试套件按 11 个编号阶段组织——按顺序运行以逐层验证系统的每个部分。每个阶段都建立在前一个阶段之上。
 
 ### 快速运行
 
@@ -445,14 +452,17 @@ pytest tests/test_01_config.py tests/test_02_source_manager.py \
        tests/test_05_chunker.py tests/test_06_context_builder.py \
        tests/test_07_crawler.py -v
 
-# 阶段 8：嵌入（需要 Ollama 运行）
+# 阶段 8：嵌入 + 嵌入缓存（需要 Ollama 运行）
 pytest tests/test_08_embedder.py -v
 
-# 阶段 9：搜索流水线（需要 Ollama + 已索引数据）
+# 阶段 9：搜索流水线 + 加权 RRF + BM25 持久化
 pytest tests/test_09_search.py -v
 
-# 阶段 10：完整端到端（较慢——需要所有环境）
-pytest tests/test_10_e2e.py -v -m slow
+# 阶段 10：查询改写单元测试
+pytest tests/test_10_query_rewriter.py -v
+
+# 阶段 11：完整端到端（较慢——需要所有环境）
+pytest tests/test_11_e2e.py -v -m slow
 
 # 运行除慢速端到端测试外的全部测试
 pytest tests/ -v -k "not slow"
@@ -469,9 +479,10 @@ pytest tests/ -v -k "not slow"
 | 5 | `test_05_chunker.py` | Chunk 组装、BM25 字段、嵌入文本、丢弃规则 | 无 |
 | 6 | `test_06_context_builder.py` | 上下文格式化、token 上限、分数排序 | 无 |
 | 7 | `test_07_crawler.py` | 文件发现、SHA1 增量检查、二次跳过 | 已配置路径的真实文档文件 |
-| 8 | `test_08_embedder.py` | 嵌入维度、批次数、离线错误处理 | Ollama + `nomic-embed-text` |
-| 9 | `test_09_search.py` | 向量 ANN、BM25 关键词、混合流水线、符号查找 | 阶段 8 + 已索引 ChromaDB 数据 |
-| 10 | `test_10_e2e.py` | 完整流水线：索引小文档集 → 搜索 → 验证 | 阶段 8 + 文档文件 |
+| 8 | `test_08_embedder.py` | 嵌入维度、批次数、离线错误处理、嵌入缓存 | Ollama + `nomic-embed-text` |
+| 9 | `test_09_search.py` | 向量 ANN、BM25 关键词、混合流水线、符号查找、加权 RRF、BM25 磁盘持久化 | 阶段 8 + 已索引 ChromaDB 数据 |
+| 10 | `test_10_query_rewriter.py` | 查询改写同义词扩展 | 阶段 8 |
+| 11 | `test_11_e2e.py` | 完整流水线：索引小文档集 → 搜索 → 验证 | 阶段 8 + 文档文件 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
@@ -513,8 +524,8 @@ mcp-doc-rag/
 │   ├── test_07_crawler.py       # 阶段 7：文件爬虫
 │   ├── test_08_embedder.py      # 阶段 8：嵌入
 │   ├── test_09_search.py        # 阶段 9：搜索流水线
-│   ├── test_10_e2e.py           # 阶段 10：完整端到端（慢速）
-│   ├── test_query_rewriter.py   # 查询改写单元测试
+│   ├── test_10_query_rewriter.py   # 阶段 10：查询改写单元测试
+│   ├── test_11_e2e.py           # 阶段 11：完整端到端（慢速）
 │   └── eval/
 │       ├── test_metrics.py      # 评估指标单元测试
 │       ├── queries.jsonl        # 标注评估数据集

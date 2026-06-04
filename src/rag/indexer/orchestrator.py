@@ -18,7 +18,9 @@ from rag.config import Config
 from rag.indexer.chunker import build_chunks
 from rag.indexer.crawler import FileEntry, crawl_all, crawl_source, update_state
 from rag.indexer.embedder import Embedder
+from rag.indexer.embedding_cache import EmbeddingCache
 from rag.indexer.parser_registry import get_parser
+from rag.retriever.bm25_search import BM25Searcher
 
 
 def _store_chunks(
@@ -26,13 +28,13 @@ def _store_chunks(
     chunks: list[Any],
     embeddings: list[list[float]],
     config: Config,
-) -> int:
+) -> tuple[int, list[str]]:
     """Store pre-embedded chunks in ChromaDB grouped by ``collection_name``.
 
     The caller is responsible for embedding all chunks before calling
     this function — the *embeddings* list must align 1:1 with *chunks*.
 
-    Returns the number of chunks successfully stored.
+    Returns ``(stored_count, affected_collections)``.
     """
     by_collection: dict[str, list[tuple[Any, list[float]]]] = {}
     for chunk, vec in zip(chunks, embeddings):
@@ -41,6 +43,7 @@ def _store_chunks(
 
     stored = 0
     batch_size = config.index_batch_size
+    affected: list[str] = []
     for coll_name, items in by_collection.items():
         try:
             collection = client.get_or_create_collection(name=coll_name)
@@ -70,7 +73,9 @@ def _store_chunks(
             except Exception:
                 continue
 
-    return stored
+        affected.append(coll_name)
+
+    return stored, affected
 
 
 def _index_source(
@@ -149,9 +154,20 @@ def _index_source(
     # -- Phase 4: Store to ChromaDB --
     t4 = time.time()
     stored = 0
+    affected_collections: list[str] = []
     if embeddings:
-        stored = _store_chunks(client, all_chunks, embeddings, config)
+        stored, affected_collections = _store_chunks(client, all_chunks, embeddings, config)
     chroma_time = time.time() - t4
+
+    # -- Phase 4b: Persist BM25 disk cache --
+    if affected_collections and config.bm25_cache_dir:
+        try:
+            bm25 = BM25Searcher(cache_dir=config.bm25_cache_dir)
+            bm25._build_indices(client, affected_collections)
+            for name in affected_collections:
+                bm25.save_to_disk(name)
+        except Exception:
+            pass
 
     # Persist index state for incremental future runs
     update_state(config.index_state_path, label, entries)
@@ -181,7 +197,8 @@ def index_source(config: Config, label: str) -> dict:
     if path is None:
         raise ValueError(f"Unknown source label: {label!r}")
 
-    embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
+    cache = EmbeddingCache(config.embedding_cache_dir)
+    embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim, cache=cache)
     client = chromadb.PersistentClient(path=config.chroma_dir)
 
     try:
@@ -199,7 +216,8 @@ def index_all(config: Config) -> dict:
     ``crawl_time``, ``parse_time``, ``chunk_time``, ``embed_time``,
     ``chroma_time``, and ``elapsed_seconds``.
     """
-    embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim)
+    cache = EmbeddingCache(config.embedding_cache_dir)
+    embedder = Embedder(config.ollama_host, config.embed_model, config.embed_dim, cache=cache)
     client = chromadb.PersistentClient(path=config.chroma_dir)
 
     total_chunks = 0

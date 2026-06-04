@@ -2,10 +2,14 @@
 
 BM25Okapi indices are built once and cached in memory.  Subsequent searches
 reuse the cached indices unless the underlying ChromaDB collection has
-changed (detected via chunk count).
+changed (detected via chunk count).  Indices can also be persisted to disk
+for fast restart (see :meth:`BM25Searcher.save_to_disk`).
 """
 
 from __future__ import annotations
+
+import os
+import pickle
 
 import chromadb
 
@@ -24,16 +28,98 @@ class BM25Searcher:
     Builds :class:`rank_bm25.BM25Okapi` indices per collection on first use
     and reuses them on subsequent searches.  Indices are automatically
     invalidated when a collection's chunk count changes (e.g. after reindex).
+
+    When *cache_dir* is provided, tokenized corpora are persisted to disk
+    so that subsequent process restarts can reload from disk instead of
+    pulling full collection data from ChromaDB.
     """
 
-    def __init__(self):
+    def __init__(self, cache_dir: str | None = None):
         self._cache: dict[str, dict] = {}
         self._counts: dict[str, int] = {}
+        self._cache_dir = cache_dir
 
     def clear(self) -> None:
         """Clear all cached indices (call after reindex)."""
         self._cache.clear()
         self._counts.clear()
+
+    def _cache_path(self, name: str) -> str:
+        """Return the disk cache path for a collection."""
+        safe = name.replace("/", "_").replace("\\", "_")
+        return os.path.join(self._cache_dir, f"{safe}.pkl")
+
+    def save_to_disk(self, name: str) -> None:
+        """Persist tokenized corpora and chunk metadata for *name* to disk."""
+        if self._cache_dir is None:
+            return
+
+        cached = self._cache.get(name)
+        if cached is None:
+            return
+
+        os.makedirs(self._cache_dir, exist_ok=True)
+
+        # Serialize only the data needed to rebuild BM25Okapi —
+        # not the BM25Okapi objects themselves (unreliable with pickle).
+        data = {
+            "chunks": cached["chunks"],
+            "symbol_corpus": cached.get("symbol_corpus", []),
+            "signature_corpus": cached.get("signature_corpus", []),
+            "remarks_corpus": cached.get("remarks_corpus", []),
+            "example_corpus": cached.get("example_corpus", []),
+            "count": self._counts.get(name, 0),
+        }
+        with open(self._cache_path(name), "wb") as f:
+            pickle.dump(data, f)
+
+    def save_all_to_disk(self) -> None:
+        """Persist all cached collections to disk."""
+        for name in list(self._cache.keys()):
+            self.save_to_disk(name)
+
+    def load_from_disk(self, name: str, current_count: int) -> bool:
+        """Try to load tokenized corpora from disk for *name*.
+
+        Returns True if the disk cache was loaded and its count matches
+        *current_count* (i.e. the ChromaDB collection has not changed).
+        """
+        from rank_bm25 import BM25Okapi
+
+        if self._cache_dir is None:
+            return False
+
+        path = self._cache_path(name)
+        if not os.path.isfile(path):
+            return False
+
+        try:
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+        except Exception:
+            return False
+
+        # Verify chunk count matches — if not, disk cache is stale
+        if data.get("count", 0) != current_count:
+            return False
+
+        def _mk_bm25(corpus: list[list[str]]) -> BM25Okapi | None:
+            if any(corpus):
+                try:
+                    return BM25Okapi(corpus)
+                except Exception:
+                    return None
+            return None
+
+        self._cache[name] = {
+            "symbol_bm25": _mk_bm25(data.get("symbol_corpus", [])),
+            "signature_bm25": _mk_bm25(data.get("signature_corpus", [])),
+            "remarks_bm25": _mk_bm25(data.get("remarks_corpus", [])),
+            "example_bm25": _mk_bm25(data.get("example_corpus", [])),
+            "chunks": data["chunks"],
+        }
+        self._counts[name] = current_count
+        return True
 
     def _get_collection_names(
         self,
@@ -56,7 +142,11 @@ class BM25Searcher:
         client: chromadb.PersistentClient,
         collection_names: list[str],
     ) -> None:
-        """Build BM25Okapi indices for collections not already cached."""
+        """Build BM25Okapi indices for collections not already cached.
+
+        Tries disk cache first (fast); falls back to pulling all data from
+        ChromaDB (slow, but always correct).
+        """
         from rank_bm25 import BM25Okapi
 
         for name in collection_names:
@@ -66,8 +156,12 @@ class BM25Searcher:
             except Exception:
                 continue
 
-            # Skip if cache is still valid for this collection
+            # Skip if memory cache is still valid
             if name in self._cache and self._counts.get(name) == current_count:
+                continue
+
+            # Try disk cache before pulling from ChromaDB
+            if self.load_from_disk(name, current_count):
                 continue
 
             try:
@@ -114,6 +208,11 @@ class BM25Searcher:
                 "remarks_bm25": _mk_bm25(remarks_corpus),
                 "example_bm25": _mk_bm25(example_corpus),
                 "chunks": chunks,
+                # Keep raw corpora for save_to_disk
+                "symbol_corpus": symbol_corpus,
+                "signature_corpus": signature_corpus,
+                "remarks_corpus": remarks_corpus,
+                "example_corpus": example_corpus,
             }
             self._counts[name] = current_count
 

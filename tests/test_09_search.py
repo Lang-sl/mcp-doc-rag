@@ -9,10 +9,12 @@ Verifies vector search, BM25 search, hybrid search, and symbol lookup.
 from __future__ import annotations
 
 import os
+import tempfile
 
 import pytest
 
 from rag.config import load_config
+from rag.models import Chunk, SearchResult
 from tests.conftest import requires_ollama, is_ollama_available
 
 
@@ -223,3 +225,254 @@ class TestSymbolLookup:
             "Symbol index has entries but couldn't retrieve any. "
             "Check symbol_index.json integrity."
         )
+
+
+# ---------------------------------------------------------------------------
+# RRF Weighted Fusion — unit tests (no external deps)
+# ---------------------------------------------------------------------------
+
+
+def _make_test_chunk(chunk_id: str, symbol_id: str):
+    """Create a minimal Chunk for search testing."""
+    from rag.models import Chunk
+
+    return Chunk(
+        chunk_id=chunk_id,
+        type="function",
+        symbol_id=symbol_id,
+        source_label="test",
+        source_module="core",
+        source_file="test.h",
+        embed_text=f"text for {chunk_id}",
+    )
+
+
+class TestRRFWeighting:
+    """BM25-Vector weighted RRF fusion."""
+
+    def test_equal_weight_same_score(self):
+        """bm25_weight=1.0: BM25 and vector at same rank get same RRF score."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=1.0)
+        scores = {r.chunk.chunk_id: r.score for r in fused}
+        assert abs(scores["a"] - scores["b"]) < 0.0001
+
+    def test_2x_weight_bm25_ranks_higher(self):
+        """bm25_weight=2.0: BM25 result outranks vector."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert fused[0].chunk.chunk_id == "a"
+
+    def test_3x_weight_gives_3x_score_ratio(self):
+        """bm25_weight=3.0: BM25 score is exactly 3x vector score."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=3.0)
+        scores = {r.chunk.chunk_id: r.score for r in fused}
+        assert abs(scores["a"] / scores["b"] - 3.0) < 0.0001
+
+    def test_below_1_weight_deprioritizes_bm25(self):
+        """bm25_weight=0.5: vector ranks above BM25."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=0.5)
+        assert fused[0].chunk.chunk_id == "b"
+
+    def test_overlapping_chunks_sum_scores(self):
+        """Same chunk in both lists: scores are summed."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c1, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) == 1
+        expected = 3.0 / 31.0  # 1/31 + 2/31
+        assert abs(fused[0].score - expected) < 0.0001
+
+    def test_empty_inputs(self):
+        """Empty lists produce empty result."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        fused = _rrf_fuse([], [], k=30, max_results=10, bm25_weight=2.0)
+        assert fused == []
+
+    def test_only_vector_results(self):
+        """Only vector results: pass through unchanged."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        vec = [SearchResult(chunk=c1, score=0.9)]
+
+        fused = _rrf_fuse(vec, [], k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) == 1
+        assert fused[0].chunk.chunk_id == "a"
+
+    def test_only_bm25_results(self):
+        """Only BM25 results: pass through unchanged (with weight applied)."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+
+        fused = _rrf_fuse([], bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) == 1
+        assert abs(fused[0].score - 2.0 / 31.0) < 0.0001
+
+    def test_backward_compatible_default(self):
+        """Default (no bm25_weight arg) gives equal weight = original behavior."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10)
+        scores = {r.chunk.chunk_id: r.score for r in fused}
+        assert abs(scores["a"] - scores["b"]) < 0.0001
+
+
+# ---------------------------------------------------------------------------
+# BM25 Disk Persistence — unit tests (no external deps)
+# ---------------------------------------------------------------------------
+
+
+class TestBM25Persistence:
+    """BM25 disk save/load for fast process restart."""
+
+    def test_save_and_load_roundtrip(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        with tempfile.TemporaryDirectory() as d:
+            cache_dir = os.path.join(d, "bm25")
+            searcher = BM25Searcher(cache_dir=cache_dir)
+
+            searcher._cache["test.coll"] = {
+                "chunks": [
+                    {"id": "1", "metadata": {"symbol_id": "Foo"}, "document": "d1"},
+                    {"id": "2", "metadata": {"symbol_id": "Bar"}, "document": "d2"},
+                ],
+                "symbol_corpus": [["foo"], ["bar"]],
+                "signature_corpus": [["void"], ["int"]],
+                "remarks_corpus": [["d1"], ["d2"]],
+                "example_corpus": [[], []],
+            }
+            searcher._counts["test.coll"] = 2
+            searcher.save_to_disk("test.coll")
+
+            assert os.path.isfile(os.path.join(cache_dir, "test.coll.pkl"))
+
+            searcher2 = BM25Searcher(cache_dir=cache_dir)
+            loaded = searcher2.load_from_disk("test.coll", 2)
+            assert loaded
+            assert "test.coll" in searcher2._cache
+            assert searcher2._counts["test.coll"] == 2
+
+    def test_stale_count_rejected(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        with tempfile.TemporaryDirectory() as d:
+            cache_dir = os.path.join(d, "bm25")
+            searcher = BM25Searcher(cache_dir=cache_dir)
+
+            searcher._cache["col"] = {
+                "chunks": [{"id": "1", "metadata": {}, "document": "doc"}],
+                "symbol_corpus": [["x"]],
+                "signature_corpus": [["y"]],
+                "remarks_corpus": [["z"]],
+                "example_corpus": [[]],
+            }
+            searcher._counts["col"] = 1
+            searcher.save_to_disk("col")
+
+            searcher2 = BM25Searcher(cache_dir=cache_dir)
+            assert not searcher2.load_from_disk("col", 99)
+
+    def test_missing_file_returns_false(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        with tempfile.TemporaryDirectory() as d:
+            cache_dir = os.path.join(d, "bm25")
+            searcher = BM25Searcher(cache_dir=cache_dir)
+            assert not searcher.load_from_disk("nonexistent", 0)
+
+    def test_no_cache_dir_skip_save(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        searcher = BM25Searcher()
+        searcher._cache["col"] = {
+            "chunks": [{"id": "1", "metadata": {}, "document": "doc"}],
+            "symbol_corpus": [["x"]],
+            "signature_corpus": [["y"]],
+            "remarks_corpus": [["z"]],
+            "example_corpus": [[]],
+        }
+        searcher._counts["col"] = 1
+        searcher.save_to_disk("col")  # should not raise
+
+    def test_no_cache_dir_load_returns_false(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        searcher = BM25Searcher()
+        assert not searcher.load_from_disk("col", 0)
+
+    def test_save_all_to_disk(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        with tempfile.TemporaryDirectory() as d:
+            cache_dir = os.path.join(d, "bm25")
+            searcher = BM25Searcher(cache_dir=cache_dir)
+
+            for name in ("a.col", "b.col"):
+                searcher._cache[name] = {
+                    "chunks": [{"id": "1", "metadata": {}, "document": "doc"}],
+                    "symbol_corpus": [["x"]],
+                    "signature_corpus": [["y"]],
+                    "remarks_corpus": [["z"]],
+                    "example_corpus": [[]],
+                }
+                searcher._counts[name] = 1
+
+            searcher.save_all_to_disk()
+            assert os.path.isfile(os.path.join(cache_dir, "a.col.pkl"))
+            assert os.path.isfile(os.path.join(cache_dir, "b.col.pkl"))
+
+    def test_clear_removes_memory_cache(self):
+        from rag.retriever.bm25_search import BM25Searcher
+
+        searcher = BM25Searcher()
+        searcher._cache["col"] = {"chunks": []}
+        searcher._counts["col"] = 5
+        searcher.clear()
+        assert len(searcher._cache) == 0
+        assert len(searcher._counts) == 0
