@@ -98,6 +98,7 @@ def evaluate(
     queries_path: str,
     k_values: list[int] | None = None,
     source_label: str | None = None,
+    enable_rewrite: bool = False,
 ) -> EvalResult:
     """Run a full evaluation pass over annotated queries.
 
@@ -110,6 +111,9 @@ def evaluate(
             ``[1, 3, 5, 10]``.
         source_label: Optional source label passed through to ``search()``
             to restrict the search scope.
+        enable_rewrite: If True, passes ``enable_rewrite=True`` to the
+            retriever's ``search()`` call.  Use this to compare retrieval
+            quality with and without query rewrite.
 
     Returns:
         ``EvalResult`` with all aggregated metrics.
@@ -138,7 +142,7 @@ def evaluate(
         relevant = set(q["relevant_chunk_ids"])
 
         t0 = time.perf_counter()
-        results = retriever.search(query_text, source_label=source_label)
+        results = retriever.search(query_text, source_label=source_label, enable_rewrite=enable_rewrite)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         all_latency.append(elapsed_ms)
 

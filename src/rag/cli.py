@@ -88,6 +88,7 @@ def main() -> None:
     p_eval = sub.add_parser("eval", help="Run retrieval evaluation")
     p_eval.add_argument("--queries", required=True, help="Path to JSONL queries file")
     p_eval.add_argument("--source", dest="source_label", default=None)
+    p_eval.add_argument("--enable-rewrite", action="store_true", help="Enable query rewrite during evaluation")
 
     # status
     sub.add_parser("status", help="Show index status")
@@ -217,6 +218,7 @@ def main() -> None:
             retriever,
             args.queries,
             source_label=args.source_label,
+            enable_rewrite=args.enable_rewrite,
         )
 
         print("=" * 50)
