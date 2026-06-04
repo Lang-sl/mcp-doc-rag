@@ -90,6 +90,10 @@ pip uninstall torch -y
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
+> **Note:** The `cu124` index above targets CUDA 12.4 — adjust to match your driver version.
+> Visit [pytorch.org](https://pytorch.org/get-started/locally/) to see the latest available builds.
+> CUDA 11.8 users would use `cu118`, CUDA 12.6 users `cu126`, etc.
+
 If no NVIDIA GPU is available, the default CPU PyTorch works — reranker queries will take 2-5s each instead of 5-20ms. See [Performance](#performance) for benchmarks.
 
 **Note:** The first time the reranker is used, it will automatically download the jina-reranker model (~1.1GB) from HuggingFace. This is a one-time download. The first inference call includes a ~10s JIT compilation warmup on GPU. If the reranker is unavailable (e.g., transformers version mismatch), search degrades gracefully — RRF fusion scores are used directly.
@@ -360,7 +364,7 @@ Query
 
 ## Performance
 
-Benchmarks on NVIDIA RTX A1000 Laptop GPU + Ollama `nomic-embed-text`:
+Benchmarks on a mid-range NVIDIA GPU + Ollama `nomic-embed-text`:
 
 | Stage | GPU (CUDA) | CPU (no GPU) |
 |-------|-----------|--------------|
@@ -378,7 +382,7 @@ Key takeaways:
 
 ### Evaluation Baseline
 
-Measured on a 7,834-chunk index with 35 annotated queries (12 API lookups + 23 natural language):
+Measured on a production-scale C++ SDK documentation index with 35 annotated queries (12 API lookups + 23 natural language):
 
 | Metric | Without Rewrite | With Query Rewrite |
 |--------|----------------|--------------------|

@@ -90,6 +90,10 @@ pip uninstall torch -y
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
+> **注意：** 上述 `cu124` 索引适用于 CUDA 12.4——请根据你的显卡驱动版本调整。
+> 访问 [pytorch.org](https://pytorch.org/get-started/locally/) 查看最新可用版本。
+> CUDA 11.8 用户应使用 `cu118`，CUDA 12.6 用户使用 `cu126`，以此类推。
+
 如果没有 NVIDIA 显卡，CPU 版 PyTorch 也可以工作——reranker 每次查询约 2-5 秒（GPU 仅需 5-20ms）。详见[性能](#性能)基准测试。
 
 **注意：** 首次使用重排序器时，会自动从 HuggingFace 下载 jina-reranker 模型（~1.1GB）。这是一次性下载。GPU 上首次推理调用包含约 10s 的 JIT 编译预热。如果重排序器不可用（例如 transformers 版本不兼容），搜索会平滑降级——直接使用 RRF 融合分数。
@@ -360,7 +364,7 @@ Query
 
 ## 性能
 
-基于 NVIDIA RTX A1000 笔记本显卡 + Ollama `nomic-embed-text` 的实测数据：
+基于中端 NVIDIA 显卡 + Ollama `nomic-embed-text` 的实测数据：
 
 | 阶段 | GPU (CUDA) | CPU (无 GPU) |
 |------|-----------|--------------|
@@ -378,7 +382,7 @@ Query
 
 ### 评估基线
 
-基于 7,834 chunk 索引、35 条标注查询（12 条 API 查找 + 23 条自然语言）的实测数据：
+基于生产级 C++ SDK 文档索引、35 条标注查询（12 条 API 查找 + 23 条自然语言）的实测数据：
 
 | 指标 | 未启用改写 | 启用查询改写 |
 |------|----------|-------------|
