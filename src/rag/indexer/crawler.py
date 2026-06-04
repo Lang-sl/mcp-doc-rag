@@ -169,6 +169,49 @@ def update_state(
     _save_state(state_path, state)
 
 
+def detect_deleted_files(
+    source_label: str, source_path: str, state_path: str
+) -> list[str]:
+    """Return absolute paths of files that are in the index state but no
+    longer exist on disk for *source_label*.
+
+    Callers should clean up the returned files from ChromaDB, the symbol
+    index, and the state file.
+    """
+    state = _load_state(state_path)
+    source_state = state.get(source_label, {})
+    deleted: list[str] = []
+    for rel_path in source_state:
+        abs_path = os.path.join(source_path, rel_path)
+        if not os.path.isfile(abs_path):
+            deleted.append(abs_path)
+    return deleted
+
+
+def remove_deleted_from_state(
+    state_path: str, source_label: str, source_path: str, deleted_abs_paths: list[str]
+) -> int:
+    """Remove deleted-file entries from the index state.
+
+    Returns the number of entries removed.
+    """
+    state = _load_state(state_path)
+    source_state = state.get(source_label, {})
+    removed = 0
+    for abs_path in deleted_abs_paths:
+        # Convert abs_path back to rel_path for state lookup
+        try:
+            rel_path = os.path.relpath(abs_path, source_path)
+        except ValueError:
+            continue
+        if rel_path in source_state:
+            del source_state[rel_path]
+            removed += 1
+    if removed:
+        _save_state(state_path, state)
+    return removed
+
+
 def crawl_all(
     doc_sources: dict[str, str], state_path: str
 ) -> Iterator[FileEntry]:

@@ -57,6 +57,10 @@ rag = "rag.cli:main"
 test = [
     "pytest>=8.0",
 ]
+header-ast = [
+    "tree-sitter>=0.21",
+    "tree-sitter-cpp>=0.23",
+]
 
 [project.urls]
 Homepage = "https://github.com/Lang-sl/mcp-doc-rag"

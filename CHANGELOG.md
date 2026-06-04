@@ -11,6 +11,8 @@
 - **BM25 disk persistence**: pickle tokenized corpora for fast process restart. BM25Searcher loads from disk instead of pulling full ChromaDB data, reducing first-query-after-restart latency from 1-5s to <0.1s.
 - **Reranker gap skip**: automatically skip reranker when RRF top1-top2 score gap exceeds `reranker_score_gap_threshold` (default 0.15), saving ~100ms CPU inference when reranker is unlikely to change ordering.
 - **Context-aware reranker candidate selection**: prioritize API chunk types (function/class/enum/macro/typedef) in reranker input, reducing max candidates from 40 to 30 (configurable via `reranker_max_candidates`). Narrative chunks fill remaining slots only when API types are exhausted.
+- **File deletion auto-cleanup**: reindex detects files deleted from source directories and automatically removes stale chunks from ChromaDB, the symbol index, and the index state file.
+- **Header AST chunking**: tree-sitter-cpp based C++ header parsing replaces regex heuristics, providing accurate extraction of complex templates, nested classes, macros, typedefs, and `using` declarations. Falls back to regex when tree-sitter is not installed.
 
 ### Added (config)
 - `query_rewrite_enabled: true`
@@ -20,6 +22,9 @@
 - `bm25_cache_dir: ./chroma_db/bm25_cache`
 - `reranker_score_gap_threshold: 0.15`
 - `reranker_max_candidates: 30`
+
+### Added (dependencies)
+- `tree-sitter` and `tree-sitter-cpp` (optional, for C++ header AST parsing). Install with `pip install ".[header-ast]"`.
 
 ### Changed
 - `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
@@ -36,6 +41,14 @@
 - `HybridRetriever` passes `bm25_cache_dir` to `BM25Searcher`
 - `HybridRetriever.search()` now skips reranker when RRF top1-top2 gap > `reranker_score_gap_threshold`
 - `_select_for_rerank()` prioritizes API chunk types in reranker input (reduces max candidates from 40 → 30)
+- `crawler.detect_deleted_files()` returns absolute paths of files removed from source directories since the last indexing run
+- `crawler.remove_deleted_from_state()` cleans up stale state file entries after chunk deletion
+- `orchestrator._cleanup_deleted_chunks()` removes stale ChromaDB chunks and symbol index entries before reindex (Phase 0)
+- `orchestrator._index_source()` now returns `deleted` count in stats for visibility into cleanup operations
+- `SymbolIndex.remove_by_files()` removes symbols by file path list (complements `remove_source()`)
+- `parser_header.parse_header()` dispatches to tree-sitter-cpp AST parser when available, with transparent fallback to regex
+- `parser_header` regex path now extracts `#define` macros and `typedef` declarations in addition to classes/enums/functions
+- `_collect_identifiers()` extracts parameter names from tree-sitter AST nodes for accurate function signatures
 
 ## [0.1.0] — 2026-06-03
 

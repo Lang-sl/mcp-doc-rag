@@ -15,9 +15,9 @@
 - **100% 本地** — 无云端 API 调用。嵌入用 Ollama，向量数据库用 ChromaDB，重排序器来自 HuggingFace。所有数据留存在你的机器上。
 - **MCP 原生** — 优先作为 MCP 服务器设计。Claude Code（及其他 MCP 客户端）可在编码时自动调用 RAG 工具。
 - **混合搜索** — 结合字段加权 BM25（符号×10、签名×5）+ 向量 ANN → RRF 融合 → 条件性 jina-reranker 跨编码器 → 代码加权 → 引用扩展。对于符号/API 标识符查询（如 `MwMultiAxis::CalculateToolpath`）自动跳过 reranker，保持低延迟。
-- **结构化分块** — Doxygen 感知的 HTML 解析器提取 symbol_id、类、函数、签名、参数、返回类型、备注和代码示例到结构化 JSON chunk 中。
+- **结构化分块** — Doxygen 感知的 HTML 解析器和 tree-sitter-cpp C++ 头文件解析器提取 symbol_id、类、函数、签名、参数、返回类型、备注和代码示例到结构化 JSON chunk 中。Tree-sitter 为复杂模板和嵌套类提供 AST 级别精度；不可用时自动回退到正则表达式。
 - **O(1) 符号查找** — 通过内存哈希索引精确定位符号，对已知 API 名称绕过全量搜索。
-- **增量索引** — SHA1 内容哈希 + mtime/size 预过滤。仅重新索引变更文件。
+- **增量索引** — SHA1 内容哈希 + mtime/size 预过滤。仅重新索引变更文件。自动检测并清理已删除文件的残留 chunk。
 - **可定制** — 通过 MCP 工具或 CLI 在运行时添加/移除文档源。
 
 ## 技术栈
@@ -31,6 +31,7 @@
 | 跨编码器运行时 | `transformers` + `torch` + `einops` |
 | PDF 提取 | `pdfplumber` |
 | HTML 解析 | `BeautifulSoup4`（Doxygen 结构感知） |
+| C++ 头文件解析 | `tree-sitter-cpp`（AST 级别，不可用时回退正则） |
 | 集成 | MCP Server（stdio JSON-RPC） |
 | 配置 | YAML |
 
@@ -76,6 +77,16 @@ cd mcp-doc-rag
 # 开发模式安装
 pip install -e .
 ```
+
+### 可选：增强 C++ 头文件解析
+
+安装 `tree-sitter-cpp` 以获得 AST 级别的头文件解析（复杂模板、嵌套类、宏）：
+
+```bash
+pip install -e ".[header-ast]"
+```
+
+未安装时，系统回退到基于正则表达式的解析，适用于大多数情况但对复杂 C++ 结构可能不够精确。
 
 ### GPU 加速（推荐）
 

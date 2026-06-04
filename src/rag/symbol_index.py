@@ -52,6 +52,20 @@ class SymbolIndex:
             del self._index[sid]
         return len(toRemove)
 
+    def remove_by_files(self, file_paths: list[str]) -> int:
+        """Remove symbols whose ``file_path`` matches any path in *file_paths*.
+
+        Returns the number of symbols removed.
+        """
+        path_set = set(file_paths)
+        to_remove = [
+            sid for sid, meta in self._index.items()
+            if meta.get("file_path") in path_set
+        ]
+        for sid in to_remove:
+            del self._index[sid]
+        return len(to_remove)
+
     def flush(self) -> None:
         """Force persist."""
         self._save()

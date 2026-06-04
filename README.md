@@ -15,9 +15,9 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 - **100% Local** — No cloud API calls. Embeddings via Ollama, vectors in ChromaDB, reranker from HuggingFace. All data stays on your machine.
 - **MCP-Native** — Designed as an MCP server first. Claude Code (and other MCP clients) can auto-invoke RAG tools during coding.
 - **Hybrid Search** — Combines field-weighted BM25 (symbol×10, signature×5) + vector ANN → RRF fusion → conditional jina-reranker cross-encoder → code boost → reference expansion. Reranker is automatically skipped for symbol/API identifier queries (e.g. `MwMultiAxis::CalculateToolpath`) to keep latency low.
-- **Structured Chunking** — Doxygen-aware HTML parser extracts symbol_id, class, function, signature, params, return type, remarks, and code examples into structured JSON chunks.
+- **Structured Chunking** — Doxygen-aware HTML parser and tree-sitter-cpp C++ header parser extract symbol_id, class, function, signature, params, return type, remarks, and code examples into structured JSON chunks. Tree-sitter provides AST-level accuracy for complex templates and nested classes; falls back to regex when tree-sitter is unavailable.
 - **O(1) Symbol Lookup** — Exact symbol ID lookup via in-memory hash index, bypassing full search for known API names.
-- **Incremental Indexing** — SHA1 content hashing with mtime/size pre-filter. Only re-indexes changed files.
+- **Incremental Indexing** — SHA1 content hashing with mtime/size pre-filter. Only re-indexes changed files. Automatically detects and cleans up chunks from deleted files.
 - **Customizable** — Add/remove document sources at runtime via MCP tools or CLI.
 
 ## Tech Stack
@@ -31,6 +31,7 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 | Cross-Encoder Runtime | `transformers` + `torch` + `einops` |
 | PDF Extraction | `pdfplumber` |
 | HTML Parsing | `BeautifulSoup4` (Doxygen structure-aware) |
+| C++ Header Parsing | `tree-sitter-cpp` (AST-level, falls back to regex) |
 | Integration | MCP Server (stdio JSON-RPC) |
 | Config | YAML |
 
@@ -76,6 +77,16 @@ cd mcp-doc-rag
 # Install in development mode
 pip install -e .
 ```
+
+### Optional: Improved C++ Header Parsing
+
+Install `tree-sitter-cpp` for AST-level header parsing (complex templates, nested classes, macros):
+
+```bash
+pip install -e ".[header-ast]"
+```
+
+Without this, the system falls back to regex-based parsing which handles most cases but may be less accurate for complex C++ constructs.
 
 ### GPU Acceleration (Recommended)
 

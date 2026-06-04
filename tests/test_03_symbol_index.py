@@ -107,3 +107,90 @@ class TestSourceRemoval:
 
         if os.path.isfile(tmp):
             os.remove(tmp)
+
+
+class TestRemoveByFiles:
+    """Verify file-level symbol removal."""
+
+    def test_remove_by_single_file(self):
+        tmp = tempfile.mktemp(suffix=".json")
+        idx = SymbolIndex(tmp)
+
+        c1 = Chunk(
+            chunk_id="1", type="function", symbol_id="f1",
+            source_label="sdk", source_module="x", source_file="/tmp/a.h",
+        )
+        c2 = Chunk(
+            chunk_id="2", type="function", symbol_id="f2",
+            source_label="sdk", source_module="x", source_file="/tmp/b.h",
+        )
+        idx.add_chunk(c1)
+        idx.add_chunk(c2)
+        assert len(idx) == 2
+
+        removed = idx.remove_by_files(["/tmp/a.h"])
+        assert removed == 1
+        assert idx.lookup("f1") is None
+        assert idx.lookup("f2") is not None
+
+        if os.path.isfile(tmp):
+            os.remove(tmp)
+
+    def test_remove_by_multiple_files(self):
+        tmp = tempfile.mktemp(suffix=".json")
+        idx = SymbolIndex(tmp)
+
+        chunks = [
+            Chunk(chunk_id="1", type="function", symbol_id="f1",
+                  source_label="sdk", source_module="x", source_file="/tmp/a.h"),
+            Chunk(chunk_id="2", type="function", symbol_id="f2",
+                  source_label="sdk", source_module="x", source_file="/tmp/b.h"),
+            Chunk(chunk_id="3", type="function", symbol_id="f3",
+                  source_label="sdk", source_module="x", source_file="/tmp/c.h"),
+        ]
+        idx.add_chunks(chunks)
+        assert len(idx) == 3
+
+        removed = idx.remove_by_files(["/tmp/a.h", "/tmp/c.h"])
+        assert removed == 2
+        assert idx.lookup("f1") is None
+        assert idx.lookup("f2") is not None
+        assert idx.lookup("f3") is None
+
+        if os.path.isfile(tmp):
+            os.remove(tmp)
+
+    def test_remove_nonexistent_file_removes_zero(self):
+        tmp = tempfile.mktemp(suffix=".json")
+        idx = SymbolIndex(tmp)
+
+        c = Chunk(
+            chunk_id="1", type="function", symbol_id="f1",
+            source_label="sdk", source_module="x", source_file="/tmp/a.h",
+        )
+        idx.add_chunk(c)
+        assert len(idx) == 1
+
+        removed = idx.remove_by_files(["/tmp/nonexistent.h"])
+        assert removed == 0
+        assert len(idx) == 1
+
+        if os.path.isfile(tmp):
+            os.remove(tmp)
+
+    def test_remove_empty_list_removes_zero(self):
+        tmp = tempfile.mktemp(suffix=".json")
+        idx = SymbolIndex(tmp)
+
+        c = Chunk(
+            chunk_id="1", type="function", symbol_id="f1",
+            source_label="sdk", source_module="x", source_file="/tmp/a.h",
+        )
+        idx.add_chunk(c)
+
+        removed = idx.remove_by_files([])
+        assert removed == 0
+        assert len(idx) == 1
+
+        if os.path.isfile(tmp):
+            os.remove(tmp)
