@@ -142,6 +142,29 @@ python -m rag status
 # Output: total_chunks, per_source breakdown, collections, symbol count
 ```
 
+### 6. Evaluate Search Quality
+
+```bash
+# 1. Copy and annotate the template with your own chunk_ids
+cp tests/eval/queries.template.jsonl tests/eval/queries.jsonl
+# Edit queries.jsonl: fill relevant_chunk_ids for each query
+# (search each query with "python -m rag query <query>" to find relevant chunks)
+
+# 2. Run evaluation
+python -m rag eval --queries tests/eval/queries.jsonl
+
+# With source scope
+python -m rag eval --queries tests/eval/queries.jsonl --source my_sdk
+
+# 3. Record baseline for future comparison
+python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+```
+
+Metrics: Recall@1/3/5/10, MRR, NDCG@5/10, latency p50/p95, zero-recall queries.
+
+The template contains 35 generic queries (12 API lookups + 23 natural language) —
+replace the API symbols with ones from your SDK and adjust queries to your domain.
+
 ## Configuration Reference
 
 Full `config.yaml` with defaults (see also `config.example.yaml`):
@@ -196,6 +219,10 @@ ref_expansion_max: 5
 
 # ---- Context Building ----
 context_max_tokens: 6000
+
+# ---- Query Rewrite ----
+query_rewrite_enabled: true
+query_rewrite_max_variants: 3
 
 # ---- Cache ----
 cache_max_entries: 128
@@ -301,8 +328,9 @@ Then import it in `src/rag/indexer/__init__.py` to trigger registration. The cra
 Query
   │
   ├─ [CACHE] LRU check (128 entries)
+  ├─ [REWRITE] Query expansion with domain synonyms (configurable)
   │
-  ├─ BM25 (field-weighted, per-collection)
+  ├─ BM25 (field-weighted, per-collection, multi-variant if rewritten)
   ├─ Vector ANN (per-collection ChromaDB)
   │
   └─ RRF Fusion (k=30) → 80 candidates
@@ -336,6 +364,8 @@ Query
 - **Code boost triggers** — queries containing "how to", "example", "create", "implement", etc. get a +20% boost on code-containing chunks.
 - **Reference expansion** — top results automatically pull in referenced symbols (1-hop, +5 max). This is most effective when your source docs have `see_also` sections.
 - **BM25 weights** — symbol_name (×10) and signature (×5) are weighted higher than remarks (×1) and examples (×0.5) for API-focused searches. Adjust in config.yaml for narrative-heavy docs.
+- **Query rewrite** — natural language queries are automatically expanded with domain synonyms (e.g., "setup" → "initialize", "configure") to improve BM25 recall. Disabled for symbol/API lookups. Configure via `query_rewrite_enabled` and `query_rewrite_max_variants`.
+- **Evaluate quality** — measure retrieval quality with `python -m rag eval`. Requires annotated queries in `tests/eval/queries.jsonl`. Track Recall@K, MRR, and NDCG@K changes as you tune the pipeline.
 
 ### Troubleshooting
 
@@ -425,11 +455,17 @@ mcp-doc-rag/
 │   ├── test_07_crawler.py       # Stage 7: File crawler
 │   ├── test_08_embedder.py      # Stage 8: Embedding
 │   ├── test_09_search.py        # Stage 9: Search pipeline
-│   └── test_10_e2e.py           # Stage 10: Full E2E (slow)
+│   ├── test_10_e2e.py           # Stage 10: Full E2E (slow)
+│   ├── test_query_rewriter.py   # Query rewrite unit tests
+│   └── eval/
+│       ├── test_metrics.py      # Metric function unit tests
+│       ├── queries.jsonl        # Annotated evaluation dataset
+│       └── baseline.txt         # Baseline metrics record
 └── src/rag/
     ├── server.py              # MCP Server (11 tools, stdio JSON-RPC)
     ├── cli.py                 # CLI entry point
     ├── config.py              # YAML config loader
+    ├── eval.py                # Evaluation metrics: Recall@K, MRR, NDCG@K
     ├── models.py              # Chunk, SearchResult, IndexStats dataclasses
     ├── symbol_index.py        # O(1) symbol hash map
     ├── source_manager.py      # CRUD for doc sources
@@ -447,6 +483,7 @@ mcp-doc-rag/
         ├── vector_search.py   # ChromaDB ANN per collection
         ├── bm25_search.py     # Field-weighted BM25
         ├── hybrid.py          # Full pipeline orchestration
+        ├── query_rewriter.py  # Rule-based domain synonym expansion
         └── reranker.py        # jina-reranker-v2 cross-encoder
 ```
 

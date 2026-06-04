@@ -142,6 +142,29 @@ python -m rag status
 # 输出：total_chunks, 按源统计, collections 数, 符号数量
 ```
 
+### 6. 评估搜索质量
+
+```bash
+# 1. 从模板复制并标注你自己的 chunk_ids
+cp tests/eval/queries.template.jsonl tests/eval/queries.jsonl
+# 编辑 queries.jsonl：为每个查询填入 relevant_chunk_ids
+#（用 "python -m rag query <查询>" 搜索每个查询，找到相关 chunk）
+
+# 2. 运行评估
+python -m rag eval --queries tests/eval/queries.jsonl
+
+# 限定源范围
+python -m rag eval --queries tests/eval/queries.jsonl --source my_sdk
+
+# 3. 记录 baseline 以便后续对比
+python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+```
+
+评估指标：Recall@1/3/5/10、MRR、NDCG@5/10、p50/p95 延迟、零召回查询列表。
+
+模板包含 35 个通用查询（12 个 API 查找 + 23 个自然语言查询）——
+请将 API 符号替换为你 SDK 中实际存在的符号，并根据你的领域调整查询。
+
 ## 配置参考
 
 完整的 `config.yaml` 及默认值（另见 `config.example.yaml`）：
@@ -196,6 +219,10 @@ ref_expansion_max: 5
 
 # ---- 上下文构建 ----
 context_max_tokens: 6000
+
+# ---- 查询改写 ----
+query_rewrite_enabled: true
+query_rewrite_max_variants: 3
 
 # ---- 缓存 ----
 cache_max_entries: 128
@@ -301,8 +328,9 @@ def parse_markdown(file_path, source_label, source_module):
 Query
   │
   ├─ [CACHE] LRU 检查（128 条目）
+  ├─ [REWRITE] 领域同义词查询扩展（可配置）
   │
-  ├─ BM25（字段加权，按 collection）
+  ├─ BM25（字段加权，按 collection，改写后多变体并行）
   ├─ 向量 ANN（按 collection ChromaDB）
   │
   └─ RRF 融合（k=30） → 80 个候选
@@ -336,6 +364,8 @@ Query
 - **代码加权触发词**——包含 "how to"、"example"、"create"、"implement" 等词的查询会对含代码的 chunk 增加 +20% 权重。
 - **引用扩展**——Top 结果自动拉取引用的符号（1 跳，最多 +5）。当文档源包含 `see_also` 章节时效果最佳。
 - **BM25 权重**——面向 API 搜索时，symbol_name（×10）和 signature（×5）的权重高于 remarks（×1）和 example（×0.5）。对于以叙述为主的文档，可在 config.yaml 中调整。
+- **查询改写**——自然语言查询自动通过领域同义词扩展（如 "setup" → "initialize"、"configure"），提升 BM25 召回率。符号/API 查询不会改写。通过 `query_rewrite_enabled` 和 `query_rewrite_max_variants` 配置。
+- **评估检索质量**——使用 `python -m rag eval` 量化检索效果。需要在 `tests/eval/queries.jsonl` 中提供标注查询。在调优流程中可追踪 Recall@K、MRR、NDCG@K 等指标变化。
 
 ### 故障排除
 
@@ -425,11 +455,17 @@ mcp-doc-rag/
 │   ├── test_07_crawler.py       # 阶段 7：文件爬虫
 │   ├── test_08_embedder.py      # 阶段 8：嵌入
 │   ├── test_09_search.py        # 阶段 9：搜索流水线
-│   └── test_10_e2e.py           # 阶段 10：完整端到端（慢速）
+│   ├── test_10_e2e.py           # 阶段 10：完整端到端（慢速）
+│   ├── test_query_rewriter.py   # 查询改写单元测试
+│   └── eval/
+│       ├── test_metrics.py      # 评估指标单元测试
+│       ├── queries.jsonl        # 标注评估数据集
+│       └── baseline.txt         # Baseline 指标记录
 └── src/rag/
     ├── server.py              # MCP 服务器（11 个工具，stdio JSON-RPC）
     ├── cli.py                 # CLI 入口
     ├── config.py              # YAML 配置加载器
+    ├── eval.py                # 评估指标：Recall@K、MRR、NDCG@K
     ├── models.py              # Chunk、SearchResult、IndexStats 数据类
     ├── symbol_index.py        # O(1) 符号哈希映射
     ├── source_manager.py      # 文档源 CRUD
@@ -447,6 +483,7 @@ mcp-doc-rag/
         ├── vector_search.py   # ChromaDB ANN 按 collection
         ├── bm25_search.py     # 字段加权 BM25
         ├── hybrid.py          # 完整流水线编排
+        ├── query_rewriter.py  # 基于规则的领域同义词扩展
         └── reranker.py        # jina-reranker-v2 跨编码器
 ```
 

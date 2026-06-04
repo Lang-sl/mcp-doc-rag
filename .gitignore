@@ -32,6 +32,10 @@ chroma_db/
 # User config (copy from config.example.yaml)
 config.yaml
 
+# Eval data (copy from template and annotate with your own chunk_ids)
+tests/eval/queries.jsonl
+tests/eval/baseline.txt
+
 # Index state (generated locally)
 .index_state.json
 symbol_index.json

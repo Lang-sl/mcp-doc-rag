@@ -89,12 +89,17 @@ class HybridRetriever:
         source_label: str | None = None,
         module: str | None = None,
         skip_rerank: bool = False,
+        enable_rewrite: bool = False,
     ) -> list[SearchResult]:
         """Run the full retrieval pipeline.
 
         Set *skip_rerank* to True for exact symbol/API lookups where
         the reranker adds latency without meaningful relevance gain.
         Auto-detects symbol-like queries when *skip_rerank* is False.
+
+        Set *enable_rewrite* to True to expand natural-language queries
+        with domain synonyms before BM25 search, improving recall for
+        conceptual queries without affecting symbol/API lookups.
         """
         if top_k is None:
             top_k = self.config.top_k_default
@@ -117,6 +122,27 @@ class HybridRetriever:
         bm25_results = self._bm25.search(
             self.client, self.config, query, candidate_count, source_label,
         )
+
+        # Step 2b: Query rewrite — expand BM25 with synonym variants
+        if enable_rewrite:
+            from rag.retriever.query_rewriter import expand
+
+            variants = expand(query, self.config.query_rewrite_max_variants)
+            if len(variants) > 1:
+                all_bm25: list[SearchResult] = list(bm25_results)
+                for v in variants[1:]:  # first variant is the original query
+                    all_bm25.extend(
+                        self._bm25.search(
+                            self.client, self.config, v, candidate_count, source_label,
+                        )
+                    )
+                # Deduplicate by chunk_id, preserving the highest score
+                seen_bm25: dict[str, SearchResult] = {}
+                for r in all_bm25:
+                    if r.chunk.chunk_id not in seen_bm25 or r.score > seen_bm25[r.chunk.chunk_id].score:
+                        seen_bm25[r.chunk.chunk_id] = r
+                bm25_results = sorted(seen_bm25.values(), key=lambda r: r.score, reverse=True)
+                bm25_results = bm25_results[:candidate_count]
 
         # Step 3: RRF fusion
         fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count)

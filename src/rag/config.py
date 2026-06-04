@@ -41,6 +41,8 @@ class Config:
     context_max_tokens: int = 6000
     cache_max_entries: int = 128
     index_batch_size: int = 500
+    query_rewrite_enabled: bool = True
+    query_rewrite_max_variants: int = 3
 
 
 _DEFAULT_CONFIG_PATH = "./config.yaml"
@@ -133,6 +135,8 @@ def load_config(path: Optional[str] = None) -> Config:
         context_max_tokens=_get("context_max_tokens", defaults.context_max_tokens),
         cache_max_entries=_get("cache_max_entries", defaults.cache_max_entries),
         index_batch_size=_get("index_batch_size", defaults.index_batch_size),
+        query_rewrite_enabled=_get("query_rewrite_enabled", defaults.query_rewrite_enabled),
+        query_rewrite_max_variants=_get("query_rewrite_max_variants", defaults.query_rewrite_max_variants),
     )
 
 

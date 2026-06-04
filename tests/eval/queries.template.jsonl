@@ -1,0 +1,50 @@
+# Evaluation queries template
+#
+# Copy this file to queries.jsonl and annotate with your own relevant_chunk_ids:
+#   cp tests/eval/queries.template.jsonl tests/eval/queries.jsonl
+#
+# For each query:
+#   1. Run: python -m rag query "<query>"
+#   2. From the results, note which chunk_ids are actually relevant
+#   3. Fill them into the "relevant_chunk_ids" array (1-5 per query)
+#   4. Run baseline: python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+#
+# The first 12 queries are API symbol lookups — replace with symbols from YOUR SDK.
+# The remaining 23 are natural language queries — adjust to match YOUR domain.
+#
+{"query": "Library::Initialize", "relevant_chunk_ids": []}
+{"query": "Library::Shutdown", "relevant_chunk_ids": []}
+{"query": "Connection::Create", "relevant_chunk_ids": []}
+{"query": "ErrorHandler::GetLastError", "relevant_chunk_ids": []}
+{"query": "Config::LoadSettings", "relevant_chunk_ids": []}
+{"query": "DataBuffer::Read", "relevant_chunk_ids": []}
+{"query": "DataBuffer::Write", "relevant_chunk_ids": []}
+{"query": "Renderer::DrawFrame", "relevant_chunk_ids": []}
+{"query": "AudioDevice::Open", "relevant_chunk_ids": []}
+{"query": "FileSystem::OpenFile", "relevant_chunk_ids": []}
+{"query": "MemoryAllocator::Allocate", "relevant_chunk_ids": []}
+{"query": "NetworkSocket::Send", "relevant_chunk_ids": []}
+{"query": "how to initialize the library", "relevant_chunk_ids": []}
+{"query": "how to create a connection", "relevant_chunk_ids": []}
+{"query": "how to configure runtime settings", "relevant_chunk_ids": []}
+{"query": "how to handle errors and exceptions", "relevant_chunk_ids": []}
+{"query": "how to load data from a file", "relevant_chunk_ids": []}
+{"query": "how to process input buffers", "relevant_chunk_ids": []}
+{"query": "how to shutdown gracefully", "relevant_chunk_ids": []}
+{"query": "how to read configuration parameters", "relevant_chunk_ids": []}
+{"query": "what is the return value format", "relevant_chunk_ids": []}
+{"query": "how to set up a rendering pipeline", "relevant_chunk_ids": []}
+{"query": "how to allocate and free memory", "relevant_chunk_ids": []}
+{"query": "how to send data over the network", "relevant_chunk_ids": []}
+{"query": "how to create a worker thread", "relevant_chunk_ids": []}
+{"query": "how to register a callback function", "relevant_chunk_ids": []}
+{"query": "how to encode and decode data", "relevant_chunk_ids": []}
+{"query": "error codes and their meanings", "relevant_chunk_ids": []}
+{"query": "how to validate input parameters", "relevant_chunk_ids": []}
+{"query": "how to manage object lifecycle", "relevant_chunk_ids": []}
+{"query": "how to log diagnostic messages", "relevant_chunk_ids": []}
+{"query": "how to handle timeouts and retries", "relevant_chunk_ids": []}
+{"query": "how to serialize data structures", "relevant_chunk_ids": []}
+{"query": "how to check library version at runtime", "relevant_chunk_ids": []}
+{"query": "how to enable debug output", "relevant_chunk_ids": []}
+{"query": "thread safety and concurrency model", "relevant_chunk_ids": []}

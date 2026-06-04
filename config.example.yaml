@@ -59,5 +59,11 @@ context_max_tokens: 6000
 # ---- Cache ----
 cache_max_entries: 128
 
+# ---- Query Rewrite ----
+# Expand natural language queries with domain synonyms for better BM25 recall.
+# Disabled for symbol/API lookups (queries containing "::").
+query_rewrite_enabled: true
+query_rewrite_max_variants: 3
+
 # ---- Index ----
 index_batch_size: 500

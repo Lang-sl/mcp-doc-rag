@@ -99,11 +99,12 @@ class Reranker:
         with torch.no_grad():
             logits = self._model(**inputs).logits
 
-        # Handle both single-dim (batch_size,) and multi-dim (batch_size, 1) output
+        # jina-reranker outputs raw logits (can be negative).  Apply sigmoid
+        # to map scores into [0, 1] — consistent with RRF scores downstream.
         if logits.dim() == 2:
-            scores = logits.squeeze(-1).cpu().tolist()
+            scores = torch.sigmoid(logits.squeeze(-1)).cpu().tolist()
         else:
-            scores = logits.cpu().tolist()
+            scores = torch.sigmoid(logits).cpu().tolist()
 
         # Update each candidate's score
         for candidate, score in zip(candidates, scores):

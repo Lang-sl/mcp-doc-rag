@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- Evaluation system: `python -m rag eval` CLI with Recall@K, MRR, NDCG@K metrics and latency percentiles
+- Query Rewrite (rule-based): domain synonym-based query expansion for BM25 search, improving recall for natural-language queries
+- `tests/eval/queries.jsonl`: annotated query evaluation dataset (35 pairs for baseline measurement)
+
+### Changed
+- `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
+- `handle_search_docs` in MCP server enables query rewrite by default
+- `Config` dataclass extended with `query_rewrite_enabled` and `query_rewrite_max_variants` fields
+
+### Added (config)
+- `query_rewrite_enabled: true`
+- `query_rewrite_max_variants: 3`
+
 ### Changed
 - **BM25 indices are now cached in memory** — first search builds indices once; subsequent searches reuse them. Cache auto-invalidates when ChromaDB collections change (chunk count mismatch).
 - **Reranker is skipped for symbol/API lookups** — exact symbol queries (`Foo::bar`, `MwMultiAxis`) and MCP tools (`get_api_class`, `get_api_function`) bypass the expensive CPU cross-encoder, falling straight through to RRF-fused BM25+vector scores.

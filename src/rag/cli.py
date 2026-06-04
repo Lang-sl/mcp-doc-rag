@@ -84,6 +84,11 @@ def main() -> None:
     p_ctx.add_argument("--top-k", type=int, default=10)
     p_ctx.add_argument("--max-tokens", type=int, default=6000)
 
+    # eval
+    p_eval = sub.add_parser("eval", help="Run retrieval evaluation")
+    p_eval.add_argument("--queries", required=True, help="Path to JSONL queries file")
+    p_eval.add_argument("--source", dest="source_label", default=None)
+
     # status
     sub.add_parser("status", help="Show index status")
 
@@ -201,6 +206,39 @@ def main() -> None:
             "per_source": per_source,
         }
         print(json.dumps(result, indent=2))
+
+    elif args.command == "eval":
+        from rag.eval import evaluate
+        from rag.retriever.hybrid import HybridRetriever
+
+        retriever = HybridRetriever(config)
+
+        result = evaluate(
+            retriever,
+            args.queries,
+            source_label=args.source_label,
+        )
+
+        print("=" * 50)
+        print("Retrieval Evaluation Results")
+        print("=" * 50)
+        print(f"Queries:            {result.num_queries}")
+        print(f"Recall@1:           {result.recall_at_1:.3f}")
+        print(f"Recall@3:           {result.recall_at_3:.3f}")
+        print(f"Recall@5:           {result.recall_at_5:.3f}")
+        print(f"Recall@10:          {result.recall_at_10:.3f}")
+        print(f"MRR:                {result.mrr:.3f}")
+        print(f"NDCG@5:             {result.ndcg_at_5:.3f}")
+        print(f"NDCG@10:            {result.ndcg_at_10:.3f}")
+        print(f"Latency p50:        {result.latency_p50_ms:.1f}ms")
+        print(f"Latency p95:        {result.latency_p95_ms:.1f}ms")
+        print(f"Zero-recall queries: {result.num_zero_recall}/{result.num_queries}")
+        if result.zero_recall_queries:
+            print("-" * 50)
+            print("Queries with zero recall (need most improvement):")
+            for q in result.zero_recall_queries:
+                print(f"  - {q}")
+        print("=" * 50)
 
 
 if __name__ == "__main__":
