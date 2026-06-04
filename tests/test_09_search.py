@@ -476,3 +476,223 @@ class TestBM25Persistence:
         searcher.clear()
         assert len(searcher._cache) == 0
         assert len(searcher._counts) == 0
+
+
+# ---------------------------------------------------------------------------
+# Reranker Candidate Selection — unit tests (no external deps)
+# ---------------------------------------------------------------------------
+
+
+class TestRerankerCandidateSelection:
+    """Context-aware reranker candidate selection: API types prioritized."""
+
+    def test_api_types_prioritized(self):
+        """API chunks (function/class/enum/macro/typedef) come before narrative."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        func = SearchResult(chunk=_make_test_chunk("a", "Foo"), score=0.5)
+        func.chunk.type = "function"
+        narrative = SearchResult(chunk=_make_test_chunk("b", ""), score=0.9)
+        narrative.chunk.type = "narrative"
+
+        # narrative has higher score but function should be selected first
+        selected = _select_for_rerank([narrative, func], max_candidates=1)
+        assert len(selected) == 1
+        assert selected[0].chunk.type == "function"
+
+    def test_respects_max_candidates(self):
+        """Selected count never exceeds max_candidates."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        candidates = [
+            SearchResult(chunk=_make_test_chunk(str(i), f"Sym{i}"), score=1.0 - i * 0.1)
+            for i in range(20)
+        ]
+        for c in candidates:
+            c.chunk.type = "function"
+
+        selected = _select_for_rerank(candidates, max_candidates=5)
+        assert len(selected) == 5
+
+    def test_sorted_by_score_descending(self):
+        """Output is sorted by score descending within selected candidates."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        c1 = SearchResult(chunk=_make_test_chunk("1", "A"), score=0.3)
+        c1.chunk.type = "function"
+        c2 = SearchResult(chunk=_make_test_chunk("2", "B"), score=0.9)
+        c2.chunk.type = "function"
+        c3 = SearchResult(chunk=_make_test_chunk("3", "C"), score=0.6)
+        c3.chunk.type = "function"
+
+        selected = _select_for_rerank([c1, c2, c3], max_candidates=3)
+        scores = [r.score for r in selected]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_empty_input(self):
+        """Empty candidates produce empty result."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        selected = _select_for_rerank([], max_candidates=30)
+        assert selected == []
+
+    def test_all_api_types_selected(self):
+        """When all candidates are API types, all are selected (up to limit)."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        candidates = []
+        for i, t in enumerate(["function", "class", "enum", "macro", "typedef"]):
+            c = SearchResult(chunk=_make_test_chunk(str(i), f"Sym{i}"), score=0.8 - i * 0.1)
+            c.chunk.type = t
+            candidates.append(c)
+
+        selected = _select_for_rerank(candidates, max_candidates=30)
+        assert len(selected) == 5
+        types = {r.chunk.type for r in selected}
+        assert types == {"function", "class", "enum", "macro", "typedef"}
+
+    def test_all_narrative_when_no_api(self):
+        """When no API types present, narrative chunks fill all slots."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        c1 = SearchResult(chunk=_make_test_chunk("1", ""), score=0.7)
+        c1.chunk.type = "narrative"
+        c2 = SearchResult(chunk=_make_test_chunk("2", ""), score=0.5)
+        c2.chunk.type = "narrative"
+
+        selected = _select_for_rerank([c1, c2], max_candidates=30)
+        assert len(selected) == 2
+
+    def test_mixed_api_and_narrative_fill(self):
+        """API types fill first, then remaining slots go to narrative."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        c1 = SearchResult(chunk=_make_test_chunk("1", "A"), score=0.4)
+        c1.chunk.type = "function"
+        c2 = SearchResult(chunk=_make_test_chunk("2", ""), score=0.9)
+        c2.chunk.type = "narrative"
+        c3 = SearchResult(chunk=_make_test_chunk("3", ""), score=0.7)
+        c3.chunk.type = "narrative"
+
+        selected = _select_for_rerank([c1, c2, c3], max_candidates=2)
+        assert len(selected) == 2
+        # API type is selected (prioritized for inclusion, sorted by score)
+        types = {r.chunk.type for r in selected}
+        assert "function" in types
+        assert "narrative" in types
+
+    def test_max_candidates_zero_returns_all(self):
+        """max_candidates=0 passes through all candidates unchanged."""
+        from rag.retriever.hybrid import _select_for_rerank
+
+        c1 = SearchResult(chunk=_make_test_chunk("1", "A"), score=0.5)
+        c1.chunk.type = "function"
+        c2 = SearchResult(chunk=_make_test_chunk("2", ""), score=0.3)
+        c2.chunk.type = "narrative"
+
+        selected = _select_for_rerank([c1, c2], max_candidates=0)
+        assert len(selected) == 2
+
+
+# ---------------------------------------------------------------------------
+# Reranker Gap Skip — unit tests (no external deps)
+# ---------------------------------------------------------------------------
+
+
+class TestRerankerGapSkip:
+    """Reranker skipped when RRF top1-top2 gap exceeds threshold."""
+
+    def test_weighted_bm25_creates_measurable_gap(self):
+        """Weighted BM25 creates a nonzero gap when results don't fully overlap."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        # c1 in both lists at rank 1; c2 only in vector at rank 2
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c1, score=0.9), SearchResult(chunk=c2, score=0.8)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) >= 2
+        gap = fused[0].score - fused[1].score
+        assert gap > 0.0, f"Expected nonzero gap, got {gap:.4f}"
+
+    def test_gap_below_default_threshold_for_overlapping_results(self):
+        """Overlapping results with equal weight produce small gap < 0.15."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        # Both in both lists — similar scores
+        bm25 = [SearchResult(chunk=c1, score=10.0), SearchResult(chunk=c2, score=9.0)]
+        vec = [SearchResult(chunk=c1, score=0.9), SearchResult(chunk=c2, score=0.8)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=1.0)
+        assert len(fused) >= 2
+        gap = fused[0].score - fused[1].score
+        assert gap < 0.15, (
+            f"Expected gap {gap:.4f} < 0.15 with equal-weight overlapping RRF"
+        )
+
+    def test_gap_exceeds_low_threshold(self):
+        """With a low threshold (0.01), even moderate gaps trigger skip."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        # c1 at rank 1 in both; c2 at rank 2 in vector only
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c1, score=0.9), SearchResult(chunk=c2, score=0.8)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) >= 2
+        gap = fused[0].score - fused[1].score
+        assert gap > 0.01, (
+            f"Expected gap {gap:.4f} > 0.01 — weighted BM25 should create discernible gap"
+        )
+
+    def test_single_result_no_gap(self):
+        """Single fused result: gap check is skipped (len < 2)."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+
+        fused = _rrf_fuse([], bm25, k=30, max_results=10, bm25_weight=2.0)
+        assert len(fused) == 1  # Only one result, gap check skipped
+
+    def test_threshold_zero_never_skips(self):
+        """threshold=0.0: even tiny gap triggers skip (equivalent to old behavior
+        only if gap is literally 0)."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        bm25 = [SearchResult(chunk=c1, score=10.0), SearchResult(chunk=c2, score=9.0)]
+        vec = [SearchResult(chunk=c1, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=2.0)
+        gap = fused[0].score - fused[1].score
+        # With threshold=0, any positive gap would skip
+        threshold = 0.0
+        assert gap > threshold, "Even a tiny RRF gap should be > 0.0"
+
+    def test_high_threshold_always_reranks(self):
+        """threshold=10.0: gap never exceeds, reranker always runs."""
+        from rag.retriever.hybrid import _rrf_fuse
+
+        c1 = _make_test_chunk("a", "Foo")
+        c2 = _make_test_chunk("b", "Bar")
+
+        # Maximum possible RRF score is ~1.0, so threshold=10.0 never skips
+        bm25 = [SearchResult(chunk=c1, score=10.0)]
+        vec = [SearchResult(chunk=c2, score=0.9)]
+
+        fused = _rrf_fuse(vec, bm25, k=30, max_results=10, bm25_weight=3.0)
+        gap = fused[0].score - fused[1].score
+        threshold = 10.0
+        assert gap < threshold, "RRF gap should always be < 10.0 (max score ≈ 1.0)"

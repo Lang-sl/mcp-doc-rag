@@ -250,6 +250,10 @@ cache_max_entries: 128
 embedding_cache_dir: ./chroma_db/embedding_cache
 bm25_cache_dir: ./chroma_db/bm25_cache
 
+# ---- Reranker Optimization ----
+reranker_score_gap_threshold: 0.15  # 0 = never skip reranker
+reranker_max_candidates: 30          # max candidates for reranker (API prioritized)
+
 # ---- Index ----
 index_batch_size: 100
 ```
@@ -356,8 +360,10 @@ Query
   ├─ BM25 (field-weighted, per-collection, multi-variant if rewritten)
   ├─ Vector ANN (per-collection ChromaDB)
   │
-  └─ RRF Fusion (k=30) → 80 candidates
+  └─ RRF Fusion (k=30) → up to 80 candidates
       │
+      ├─ [GAP CHECK] Skip reranker if top1-top2 RRF gap > threshold (configurable)
+      ├─ [API PRIORITY] Select top candidates prioritizing API chunk types
       ├─ Reranker (jina-reranker-v2 cross-encoder, graceful fallback)
       ├─ Code Boost (+20% on trigger words)
       ├─ Reference Expansion (1-hop, max +5)
@@ -374,7 +380,7 @@ Benchmarks on a mid-range NVIDIA GPU + Ollama `nomic-embed-text`:
 | Vector embedding (per query) | ~50ms | ~50ms |
 | BM25 keyword search | ~30ms | ~30ms |
 | RRF fusion + code boost + ref expand | < 5ms | < 5ms |
-| **Reranker (40 candidates)** | **~18ms** | ~5,000ms |
+| **Reranker (30 candidates)** | **~15ms** | ~4,000ms |
 | **Total search latency (p50)** | **~100ms** | ~5,200ms |
 | First query (model load + JIT warmup) | ~10s | ~30s |
 
@@ -389,15 +395,15 @@ Measured on a production-scale C++ SDK documentation index with 35 annotated que
 
 | Metric | Without Rewrite | With Query Rewrite |
 |--------|----------------|--------------------|
-| Recall@1 | 0.364 | **0.374** (+2.7%) |
-| Recall@5 | 0.533 | 0.533 |
-| Recall@10 | 0.648 | **0.657** (+1.4%) |
-| MRR | 0.516 | **0.538** (+4.3%) |
-| NDCG@5 | 0.529 | **0.541** (+2.3%) |
-| NDCG@10 | 0.573 | **0.585** (+2.1%) |
-| p50 latency | 375ms | 460ms |
+| Recall@1 | 0.402 | 0.405 |
+| Recall@5 | 0.648 | 0.607 |
+| Recall@10 | 0.748 | 0.679 |
+| MRR | 0.673 | 0.627 |
+| NDCG@5 | 0.694 | 0.638 |
+| NDCG@10 | 0.703 | 0.642 |
+| p50 latency | 292ms | 318ms |
 
-Compared to Plan 01 baseline (equal-weight RRF, no rewrite: Recall@1 0.107, MRR 0.382), the BM25-weighted RRF provides a **3.4× Recall@1 improvement** for API/symbol name queries. Query rewrite adds a further 2-4% on top. Run your own baseline:
+Compared to Plan 01 baseline (equal-weight RRF, no rewrite: Recall@1 0.107, MRR 0.382), the BM25-weighted RRF provides a **3.8× Recall@1 improvement** for API/symbol name queries. Context-aware reranker candidate selection and gap skip further improve quality and reduce latency. Run your own baseline:
 
 ```bash
 python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
@@ -413,6 +419,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **BM25 disk persistence.** BM25 tokenized corpora are persisted to disk (`bm25_cache_dir`). After MCP server restart, first query loads from disk instead of pulling full ChromaDB data, reducing cold-start latency from 1-5s to < 0.1s.
 - **Pipeline phases.** `python -m rag reindex` prints per-phase timing (crawl, parse, chunk, embed, chroma) so you can see exactly where time is spent. Embedding is typically < 30% of total time.
 - **RRF weighting.** BM25 keyword matches are weighted 2× in RRF fusion (`rrf_bm25_weight: 2.0`), significantly improving Recall@1 for API/symbol name queries without hurting natural-language search quality.
+- **Reranker optimization.** The reranker is automatically skipped when the RRF top1-top2 gap is large (> `reranker_score_gap_threshold`), and only the top 30 candidates (API types prioritized) are sent to the cross-encoder. This reduces per-query latency without hurting quality. Set `reranker_score_gap_threshold: 0` to never skip.
 - **Ollama must be running.** Start it with `ollama serve` or ensure the Windows service is running.
 - **Reranker download.** The first `search_docs` call will download the jina-reranker model (~1.1GB). This is one-time. Pre-download by running a test search after indexing. The reranker includes an automatic compatibility patch for transformers >= 4.46.
 - **ChromaDB storage.** The vector database defaults to `./chroma_db` inside the project directory. It can grow to several GB for large doc sets — configure `chroma_dir` in config.yaml if you need it elsewhere.

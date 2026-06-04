@@ -46,6 +46,8 @@ class Config:
     rrf_bm25_weight: float = 2.0
     embedding_cache_dir: str = "./chroma_db/embedding_cache"
     bm25_cache_dir: str = "./chroma_db/bm25_cache"
+    reranker_score_gap_threshold: float = 0.15
+    reranker_max_candidates: int = 30
 
 
 _DEFAULT_CONFIG_PATH = "./config.yaml"
@@ -143,6 +145,8 @@ def load_config(path: Optional[str] = None) -> Config:
         rrf_bm25_weight=_get("rrf_bm25_weight", defaults.rrf_bm25_weight),
         embedding_cache_dir=_resolve_path(_get("embedding_cache_dir", defaults.embedding_cache_dir), config_dir),
         bm25_cache_dir=_resolve_path(_get("bm25_cache_dir", defaults.bm25_cache_dir), config_dir),
+        reranker_score_gap_threshold=_get("reranker_score_gap_threshold", defaults.reranker_score_gap_threshold),
+        reranker_max_candidates=_get("reranker_max_candidates", defaults.reranker_max_candidates),
     )
 
 

@@ -18,6 +18,31 @@ from rag.retriever.bm25_search import BM25Searcher
 from rag.retriever.reranker import Reranker
 
 
+def _select_for_rerank(
+    candidates: list[SearchResult],
+    max_candidates: int,
+) -> list[SearchResult]:
+    """Select candidates for reranker, prioritizing API chunk types.
+
+    API types (function, class, enum, macro, typedef) are favored because
+    they carry structured, high-signal content that benefits most from
+    cross-encoder rescoring.  Narrative chunks fill remaining slots.
+    """
+    if max_candidates <= 0:
+        return candidates
+
+    api_types = {"function", "class", "enum", "macro", "typedef"}
+    api = [r for r in candidates if r.chunk.type in api_types]
+    other = [r for r in candidates if r.chunk.type not in api_types]
+
+    selected = api[:max_candidates]
+    remaining = max_candidates - len(selected)
+    if remaining > 0:
+        selected.extend(other[:remaining])
+    selected.sort(key=lambda r: r.score, reverse=True)
+    return selected
+
+
 def _is_symbol_lookup(query: str) -> bool:
     """Detect exact symbol / API lookups that don't benefit from reranking.
 
@@ -147,11 +172,16 @@ class HybridRetriever:
         # Step 3: RRF fusion
         fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count, self.config.rrf_bm25_weight)
 
-        # Step 4: Reranker (skip for symbol/API lookups)
+        # Step 4: Reranker (skip for symbol/API lookups, large top1-top2 gap, or no candidates)
         should_rerank = not skip_rerank and not _is_symbol_lookup(query)
+        if should_rerank and fused and len(fused) >= 2:
+            gap = fused[0].score - fused[1].score
+            if gap > self.config.reranker_score_gap_threshold:
+                should_rerank = False
         if fused and should_rerank:
+            rerank_candidates = _select_for_rerank(fused, self.config.reranker_max_candidates)
             try:
-                fused = self.reranker.rerank(query, fused)
+                fused = self.reranker.rerank(query, rerank_candidates)
             except Exception:
                 pass  # Reranker unavailable — continue with RRF scores
 

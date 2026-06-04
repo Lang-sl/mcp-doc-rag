@@ -9,6 +9,8 @@
 - **BM25-Vector weighted RRF fusion**: BM25 contribution weight configurable via `rrf_bm25_weight` (default 2.0). Improves Recall@1 for API/symbol name queries by prioritizing exact keyword matches over semantic similarity.
 - **Embedding cache**: disk-based cache keyed by `sha256(embed_text + model)`, skipping redundant Ollama embedding computation on incremental reindex. Cache-hit reindex embed phase drops from 1-2 minutes to near-instant.
 - **BM25 disk persistence**: pickle tokenized corpora for fast process restart. BM25Searcher loads from disk instead of pulling full ChromaDB data, reducing first-query-after-restart latency from 1-5s to <0.1s.
+- **Reranker gap skip**: automatically skip reranker when RRF top1-top2 score gap exceeds `reranker_score_gap_threshold` (default 0.15), saving ~100ms CPU inference when reranker is unlikely to change ordering.
+- **Context-aware reranker candidate selection**: prioritize API chunk types (function/class/enum/macro/typedef) in reranker input, reducing max candidates from 40 to 30 (configurable via `reranker_max_candidates`). Narrative chunks fill remaining slots only when API types are exhausted.
 
 ### Added (config)
 - `query_rewrite_enabled: true`
@@ -16,6 +18,8 @@
 - `rrf_bm25_weight: 2.0`
 - `embedding_cache_dir: ./chroma_db/embedding_cache`
 - `bm25_cache_dir: ./chroma_db/bm25_cache`
+- `reranker_score_gap_threshold: 0.15`
+- `reranker_max_candidates: 30`
 
 ### Changed
 - `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
@@ -30,6 +34,8 @@
 - `BM25Searcher` now accepts optional `cache_dir` parameter for disk persistence
 - `_store_chunks()` returns `(count, affected_collections)` and orchestrator builds BM25 disk cache after storing
 - `HybridRetriever` passes `bm25_cache_dir` to `BM25Searcher`
+- `HybridRetriever.search()` now skips reranker when RRF top1-top2 gap > `reranker_score_gap_threshold`
+- `_select_for_rerank()` prioritizes API chunk types in reranker input (reduces max candidates from 40 → 30)
 
 ## [0.1.0] — 2026-06-03
 

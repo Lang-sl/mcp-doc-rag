@@ -45,6 +45,14 @@ class TestConfigDefaults:
         assert len(config.code_boost_triggers) > 0
         assert "how to" in config.code_boost_triggers
 
+    def test_reranker_score_gap_threshold_default(self):
+        config = Config()
+        assert config.reranker_score_gap_threshold == 0.15
+
+    def test_reranker_max_candidates_default(self):
+        config = Config()
+        assert config.reranker_max_candidates == 30
+
 
 class TestLoadConfig:
     """Verify YAML loading with overrides and env var fallback."""
@@ -91,5 +99,16 @@ class TestLoadConfig:
         assert w.remarks == 2.0
         # Unspecified BM25 fields keep defaults
         assert w.signature == 5.0
+
+        os.remove(tmp)
+
+    def test_reranker_fields_from_yaml(self):
+        tmp = tempfile.mktemp(suffix=".yaml")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("reranker_score_gap_threshold: 0.0\nreranker_max_candidates: 20\n")
+
+        config = load_config(tmp)
+        assert config.reranker_score_gap_threshold == 0.0
+        assert config.reranker_max_candidates == 20
 
         os.remove(tmp)

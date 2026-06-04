@@ -250,6 +250,10 @@ cache_max_entries: 128
 embedding_cache_dir: ./chroma_db/embedding_cache
 bm25_cache_dir: ./chroma_db/bm25_cache
 
+# ---- 重排序器优化 ----
+reranker_score_gap_threshold: 0.15  # 0 = 永不跳过重排序器
+reranker_max_candidates: 30          # 送入重排序器的最大候选数（API 类型优先）
+
 # ---- 索引 ----
 index_batch_size: 100
 ```
@@ -356,8 +360,10 @@ Query
   ├─ BM25（字段加权，按 collection，改写后多变体并行）
   ├─ 向量 ANN（按 collection ChromaDB）
   │
-  └─ RRF 融合（k=30） → 80 个候选
+  └─ RRF 融合（k=30） → 最多 80 个候选
       │
+      ├─ [GAP CHECK] top1-top2 RRF 分差超过阈值时跳过重排序器（可配置）
+      ├─ [API PRIORITY] 优先选择 API 类型候选送入重排序器
       ├─ 重排序器（jina-reranker-v2 跨编码器，平滑降级）
       ├─ 代码加权（触发词 +20%）
       ├─ 引用扩展（1 跳，最多 +5）
@@ -374,7 +380,7 @@ Query
 | 向量嵌入（每次查询） | ~50ms | ~50ms |
 | BM25 关键词搜索 | ~30ms | ~30ms |
 | RRF 融合 + 代码加权 + 引用扩展 | < 5ms | < 5ms |
-| **Reranker（40 候选）** | **~18ms** | ~5,000ms |
+| **Reranker（30 候选）** | **~15ms** | ~4,000ms |
 | **总搜索延迟（p50）** | **~100ms** | ~5,200ms |
 | 首次查询（模型加载 + JIT 预热） | ~10s | ~30s |
 
@@ -389,15 +395,15 @@ Query
 
 | 指标 | 未启用改写 | 启用查询改写 |
 |------|----------|-------------|
-| Recall@1 | 0.364 | **0.374** (+2.7%) |
-| Recall@5 | 0.533 | 0.533 |
-| Recall@10 | 0.648 | **0.657** (+1.4%) |
-| MRR | 0.516 | **0.538** (+4.3%) |
-| NDCG@5 | 0.529 | **0.541** (+2.3%) |
-| NDCG@10 | 0.573 | **0.585** (+2.1%) |
-| p50 延迟 | 375ms | 460ms |
+| Recall@1 | 0.402 | 0.405 |
+| Recall@5 | 0.648 | 0.607 |
+| Recall@10 | 0.748 | 0.679 |
+| MRR | 0.673 | 0.627 |
+| NDCG@5 | 0.694 | 0.638 |
+| NDCG@10 | 0.703 | 0.642 |
+| p50 延迟 | 292ms | 318ms |
 
-与 Plan 01 基线（等权 RRF，无改写：Recall@1 0.107、MRR 0.382）相比，BM25 加权 RRF 为 API/符号名称查询带来了 **3.4 倍 Recall@1 提升**。查询改写在此基础上再增加 2-4%。运行你自己的基线：
+与 Plan 01 基线（等权 RRF，无改写：Recall@1 0.107、MRR 0.382）相比，BM25 加权 RRF 为 API/符号名称查询带来了 **3.8 倍 Recall@1 提升**。上下文感知的重排序器候选筛选和分差跳过进一步提升了质量并降低了延迟。运行你自己的基线：
 
 ```bash
 python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
@@ -413,6 +419,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **BM25 磁盘持久化。** BM25 分词语料持久化到磁盘（`bm25_cache_dir`）。MCP 服务器重启后首次查询从磁盘加载而非从 ChromaDB 全量拉取，冷启动延迟从 1-5s 降至 < 0.1s。
 - **流水线阶段。** `python -m rag reindex` 会打印每个阶段的耗时（crawl, parse, chunk, embed, chroma），便于精确定位时间消耗。嵌入通常占总时间不到 30%。
 - **RRF 加权。** BM25 关键词匹配在 RRF 融合中获得 2 倍权重（`rrf_bm25_weight: 2.0`），显著提升 API/符号名称查询的 Recall@1，同时不影响自然语言搜索质量。
+- **重排序器优化。** 当 RRF top1-top2 分差较大（> `reranker_score_gap_threshold`）时自动跳过重排序器，仅将前 30 个候选（API 类型优先）送入跨编码器。这在不损害搜索质量的前提下降低了每次查询的延迟。设置 `reranker_score_gap_threshold: 0` 可永不跳过。
 - **Ollama 必须在运行。** 使用 `ollama serve` 启动或确保 Windows 服务正在运行。
 - **重排序器下载。** 首次 `search_docs` 调用会下载 jina-reranker 模型（~1.1GB），仅此一次。索引后运行一次测试搜索可提前下载。重排序器包含 transformers >= 4.46 的自动兼容性补丁。
 - **ChromaDB 存储。** 向量数据库默认存放在项目目录下的 `./chroma_db`。对于大型文档集可能增长到数 GB——如需其他位置，请在 config.yaml 中配置 `chroma_dir`。

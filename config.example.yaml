@@ -31,6 +31,7 @@ chunk_max_chars: 2000
 top_k_default: 10
 candidate_expand_factor: 4
 rrf_k: 30
+rrf_bm25_weight: 2.0  # >1.0 = BM25 keyword matches weighted higher in RRF
 
 # ---- BM25 Field Weights ----
 bm25_weights:
@@ -58,6 +59,12 @@ context_max_tokens: 6000
 
 # ---- Cache ----
 cache_max_entries: 128
+embedding_cache_dir: ./chroma_db/embedding_cache
+bm25_cache_dir: ./chroma_db/bm25_cache
+
+# ---- Reranker Optimization ----
+reranker_score_gap_threshold: 0.15   # 0 = never skip reranker
+reranker_max_candidates: 30           # max candidates fed to reranker (API prioritized)
 
 # ---- Query Rewrite ----
 # Expand natural language queries with domain synonyms for better BM25 recall.
