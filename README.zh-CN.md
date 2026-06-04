@@ -38,6 +38,7 @@
 
 - **Python** >= 3.11
 - **Ollama**（用于嵌入）
+- **NVIDIA GPU + CUDA**（推荐用于 reranker；CPU 降级可用但较慢）
 
 ### 安装 Ollama
 
@@ -76,7 +77,22 @@ cd mcp-doc-rag
 pip install -e .
 ```
 
-**注意：** 首次使用重排序器时，会自动从 HuggingFace 下载 jina-reranker 模型（~1.1GB）。这是一次性下载。如果重排序器不可用（例如 transformers 版本不兼容），搜索会平滑降级——直接使用 RRF 融合分数。
+### GPU 加速（推荐）
+
+Reranker 在 GPU 上比 CPU 快约 500 倍。安装 CUDA 版 PyTorch：
+
+```bash
+# 确认 NVIDIA 显卡可被检测
+nvidia-smi
+
+# 卸载 CPU 版 PyTorch，安装 CUDA 版
+pip uninstall torch -y
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+```
+
+如果没有 NVIDIA 显卡，CPU 版 PyTorch 也可以工作——reranker 每次查询约 2-5 秒（GPU 仅需 5-20ms）。详见[性能](#性能)基准测试。
+
+**注意：** 首次使用重排序器时，会自动从 HuggingFace 下载 jina-reranker 模型（~1.1GB）。这是一次性下载。GPU 上首次推理调用包含约 10s 的 JIT 编译预热。如果重排序器不可用（例如 transformers 版本不兼容），搜索会平滑降级——直接使用 RRF 融合分数。
 
 ## 快速开始
 
@@ -340,6 +356,44 @@ Query
       ├─ 引用扩展（1 跳，最多 +5）
       │
       └─ Top-K 结果
+```
+
+## 性能
+
+基于 NVIDIA RTX A1000 笔记本显卡 + Ollama `nomic-embed-text` 的实测数据：
+
+| 阶段 | GPU (CUDA) | CPU (无 GPU) |
+|------|-----------|--------------|
+| 向量嵌入（每次查询） | ~50ms | ~50ms |
+| BM25 关键词搜索 | ~30ms | ~30ms |
+| RRF 融合 + 代码加权 + 引用扩展 | < 5ms | < 5ms |
+| **Reranker（40 候选）** | **~18ms** | ~5,000ms |
+| **总搜索延迟（p50）** | **~100ms** | ~5,200ms |
+| 首次查询（模型加载 + JIT 预热） | ~10s | ~30s |
+
+关键结论：
+- 有 GPU 时，reranker 开销可忽略——完整混合搜索约 100ms。
+- 无 GPU 时，reranker 占主导延迟（每次查询约 5s）。生产环境建议配置 GPU PyTorch，或临时使用 `skip_rerank=True` 跳过 reranker。
+- BM25 和向量搜索不依赖 GPU，始终快速。
+
+### 评估基线
+
+基于 7,834 chunk 索引、35 条标注查询（12 条 API 查找 + 23 条自然语言）的实测数据：
+
+| 指标 | 未启用改写 | 启用查询改写 |
+|------|----------|-------------|
+| Recall@1 | 0.107 | **0.117** (+9.3%) |
+| Recall@5 | 0.533 | 0.533 |
+| Recall@10 | 0.648 | **0.657** (+1.4%) |
+| MRR | 0.382 | **0.405** (+6.0%) |
+| NDCG@5 | 0.431 | **0.442** (+2.6%) |
+| p50 延迟 | 368ms | 436ms |
+
+查询改写通过对自然语言查询生成 BM25 同义词变体，提升了早期排位指标（Recall@1、MRR）。运行你自己的基线：
+
+```bash
+python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 ```
 
 ## 重要提示

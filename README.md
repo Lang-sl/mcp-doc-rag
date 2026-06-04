@@ -38,6 +38,7 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 
 - **Python** >= 3.11
 - **Ollama** (for embeddings)
+- **NVIDIA GPU + CUDA** (recommended for reranker; CPU fallback works but is slower)
 
 ### Install Ollama
 
@@ -76,7 +77,22 @@ cd mcp-doc-rag
 pip install -e .
 ```
 
-**Note:** The first time the reranker is used, it will automatically download the jina-reranker model (~1.1GB) from HuggingFace. This is a one-time download. If the reranker is unavailable (e.g., transformers version mismatch), search degrades gracefully — RRF fusion scores are used directly.
+### GPU Acceleration (Recommended)
+
+The reranker runs ~500× faster on GPU vs CPU. Install the CUDA-enabled PyTorch:
+
+```bash
+# Verify your NVIDIA GPU is detected
+nvidia-smi
+
+# Uninstall CPU-only PyTorch if present, then install CUDA version
+pip uninstall torch -y
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+```
+
+If no NVIDIA GPU is available, the default CPU PyTorch works — reranker queries will take 2-5s each instead of 5-20ms. See [Performance](#performance) for benchmarks.
+
+**Note:** The first time the reranker is used, it will automatically download the jina-reranker model (~1.1GB) from HuggingFace. This is a one-time download. The first inference call includes a ~10s JIT compilation warmup on GPU. If the reranker is unavailable (e.g., transformers version mismatch), search degrades gracefully — RRF fusion scores are used directly.
 
 ## Quick Start
 
@@ -340,6 +356,44 @@ Query
       ├─ Reference Expansion (1-hop, max +5)
       │
       └─ Top-K Results
+```
+
+## Performance
+
+Benchmarks on NVIDIA RTX A1000 Laptop GPU + Ollama `nomic-embed-text`:
+
+| Stage | GPU (CUDA) | CPU (no GPU) |
+|-------|-----------|--------------|
+| Vector embedding (per query) | ~50ms | ~50ms |
+| BM25 keyword search | ~30ms | ~30ms |
+| RRF fusion + code boost + ref expand | < 5ms | < 5ms |
+| **Reranker (40 candidates)** | **~18ms** | ~5,000ms |
+| **Total search latency (p50)** | **~100ms** | ~5,200ms |
+| First query (model load + JIT warmup) | ~10s | ~30s |
+
+Key takeaways:
+- With GPU, the reranker adds negligible overhead — full hybrid search in ~100ms.
+- Without GPU, reranker dominates latency (~5s per query). Set up GPU PyTorch for production use, or temporarily skip reranker with `skip_rerank=True`.
+- BM25 and vector search are independent of GPU and always fast.
+
+### Evaluation Baseline
+
+Measured on a 7,834-chunk index with 35 annotated queries (12 API lookups + 23 natural language):
+
+| Metric | Without Rewrite | With Query Rewrite |
+|--------|----------------|--------------------|
+| Recall@1 | 0.107 | **0.117** (+9.3%) |
+| Recall@5 | 0.533 | 0.533 |
+| Recall@10 | 0.648 | **0.657** (+1.4%) |
+| MRR | 0.382 | **0.405** (+6.0%) |
+| NDCG@5 | 0.431 | **0.442** (+2.6%) |
+| p50 latency | 368ms | 436ms |
+
+Query rewrite improves early-position recall (Recall@1, MRR) by generating BM25 synonym variants for natural language queries. Run your own baseline:
+
+```bash
+python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 ```
 
 ## Important Tips
