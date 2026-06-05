@@ -413,8 +413,8 @@ Measured on a production-scale C++ SDK documentation index with **108 annotated 
 | MRR | 0.644 | 0.614 |
 | NDCG@5 | 0.676 | 0.635 |
 | NDCG@10 | 0.695 | 0.659 |
-| p50 latency | 293ms | 313ms |
-| p95 latency | 458ms | 573ms |
+| p50 latency | 279ms | 300ms |
+| p95 latency | 469ms | 548ms |
 | Zero-recall | 13/108 (12%) | 19/108 (18%) |
 
 Without rewrite, BM25-weighted RRF achieves stronger Recall@10 (0.722) with fewer zero-recall queries (13). API symbol lookups (35 queries) maintain near-perfect Recall@1. The larger, more diverse query set reveals query-rewrite regressions on some natural-language queries where keyword dilution can hurt precision. Run your own baseline:
