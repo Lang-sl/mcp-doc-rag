@@ -402,19 +402,22 @@ Key takeaways:
 
 ### Evaluation Baseline
 
-Measured on a production-scale C++ SDK documentation index with 35 annotated queries (12 API lookups + 23 natural language). RRF weighting (`rrf_bm25_weight: 2.0`) significantly improves early-position recall by prioritizing exact keyword matches.
+Measured on a production-scale C++ SDK documentation index with **108 annotated queries** (35 API symbol lookups + 73 natural language), covering 3 document sources across 7,834 indexed chunks. RRF weighting (`rrf_bm25_weight: 2.0`) significantly improves early-position recall by prioritizing exact keyword matches.
 
 | Metric | Without Rewrite | With Query Rewrite |
 |--------|----------------|--------------------|
-| Recall@1 | 0.402 | 0.405 |
-| Recall@5 | 0.648 | 0.607 |
-| Recall@10 | 0.748 | 0.679 |
-| MRR | 0.673 | 0.627 |
-| NDCG@5 | 0.694 | 0.638 |
-| NDCG@10 | 0.703 | 0.642 |
-| p50 latency | 292ms | 318ms |
+| Recall@1 | 0.362 | 0.360 |
+| Recall@3 | 0.513 | 0.486 |
+| Recall@5 | 0.593 | 0.548 |
+| Recall@10 | 0.722 | 0.678 |
+| MRR | 0.644 | 0.614 |
+| NDCG@5 | 0.676 | 0.635 |
+| NDCG@10 | 0.695 | 0.659 |
+| p50 latency | 293ms | 313ms |
+| p95 latency | 458ms | 573ms |
+| Zero-recall | 13/108 (12%) | 19/108 (18%) |
 
-Compared to Plan 01 baseline (equal-weight RRF, no rewrite: Recall@1 0.107, MRR 0.382), the BM25-weighted RRF provides a **3.8× Recall@1 improvement** for API/symbol name queries. Context-aware reranker candidate selection and gap skip further improve quality and reduce latency. Run your own baseline:
+Without rewrite, BM25-weighted RRF achieves stronger Recall@10 (0.722) with fewer zero-recall queries (13). API symbol lookups (35 queries) maintain near-perfect Recall@1. The larger, more diverse query set reveals query-rewrite regressions on some natural-language queries where keyword dilution can hurt precision. Run your own baseline:
 
 ```bash
 python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt

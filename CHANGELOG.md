@@ -5,7 +5,7 @@
 ### Added
 - Evaluation system: `python -m rag eval` CLI with Recall@K, MRR, NDCG@K metrics and latency percentiles
 - Query Rewrite (rule-based): domain synonym-based query expansion for BM25 search, improving recall for natural-language queries
-- `tests/eval/queries.jsonl`: annotated query evaluation dataset (35 pairs for baseline measurement)
+- `tests/eval/queries.jsonl`: annotated query evaluation dataset (108 queries: 35 API lookups + 73 natural language)
 - **BM25-Vector weighted RRF fusion**: BM25 contribution weight configurable via `rrf_bm25_weight` (default 2.0). Improves Recall@1 for API/symbol name queries by prioritizing exact keyword matches over semantic similarity.
 - **Embedding cache**: disk-based cache keyed by `sha256(embed_text + model)`, skipping redundant Ollama embedding computation on incremental reindex. Cache-hit reindex embed phase drops from 1-2 minutes to near-instant.
 - **BM25 disk persistence**: pickle tokenized corpora for fast process restart. BM25Searcher loads from disk instead of pulling full ChromaDB data, reducing first-query-after-restart latency from 1-5s to <0.1s.
