@@ -265,6 +265,36 @@ def _index_source(
     }
 
 
+def _rebuild_symbol_index(config: Config) -> int:
+    """Rebuild symbol index from ChromaDB metadata (single source of truth).
+
+    Returns the number of symbols indexed.
+    """
+    symbol_index = SymbolIndex(config.symbol_index_path)
+    symbol_index._index.clear()
+
+    for coll in chromadb.PersistentClient(path=config.chroma_dir).list_collections():
+        try:
+            response = coll.get(include=["metadatas"])
+        except Exception:
+            continue
+        for metadata in response.get("metadatas", []):
+            symbol_id = metadata.get("symbol_id", "")
+            if not symbol_id or symbol_id in symbol_index._index:
+                continue
+            symbol_index._index[symbol_id] = {
+                "type": metadata.get("type", ""),
+                "symbol_id": symbol_id,
+                "class_name": metadata.get("class_name") or None,
+                "function_name": metadata.get("function_name") or None,
+                "source_label": metadata.get("source_label", ""),
+                "source_module": metadata.get("source_module", ""),
+                "file_path": metadata.get("source_file", ""),
+            }
+    symbol_index.flush()
+    return len(symbol_index)
+
+
 def index_source(config: Config, label: str) -> dict:
     """Index a single source by *label*.
 
@@ -280,7 +310,9 @@ def index_source(config: Config, label: str) -> dict:
     client = chromadb.PersistentClient(path=config.chroma_dir)
 
     try:
-        return _index_source(label, path, config, embedder, client)
+        result = _index_source(label, path, config, embedder, client)
+        _rebuild_symbol_index(config)
+        return result
     finally:
         del embedder
         del client
@@ -320,6 +352,8 @@ def index_all(config: Config) -> dict:
             }
         sources[label] = stats
         total_chunks += stats.get("chunks", 0)
+
+    _rebuild_symbol_index(config)
 
     del embedder
     del client

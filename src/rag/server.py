@@ -236,38 +236,11 @@ def handle_index_status() -> dict:
 
 
 def _build_symbol_index_from_db() -> None:
-    """Rebuild symbol index from ChromaDB collections."""
-    import chromadb
-    client = chromadb.PersistentClient(path=_config.chroma_dir)
-
-    # Clear existing index
-    _symbol_index._index.clear()
-
-    for coll in client.list_collections():
-        try:
-            response = coll.get(include=["metadatas"])
-        except Exception:
-            continue
-
-        for metadata in response.get("metadatas", []):
-            symbol_id = metadata.get("symbol_id", "")
-            if not symbol_id:
-                continue
-
-            if symbol_id in _symbol_index._index:
-                continue
-
-            _symbol_index._index[symbol_id] = {
-                "type": metadata.get("type", ""),
-                "symbol_id": symbol_id,
-                "class_name": metadata.get("class_name") or None,
-                "function_name": metadata.get("function_name") or None,
-                "source_label": metadata.get("source_label", ""),
-                "source_module": metadata.get("source_module", ""),
-                "file_path": metadata.get("source_file", ""),
-            }
-
-    _symbol_index.flush()
+    """Rebuild symbol index from ChromaDB collections (delegates to orchestrator)."""
+    from rag.indexer.orchestrator import _rebuild_symbol_index
+    _rebuild_symbol_index(_config)
+    # Reload the in-memory module-level index so lookups see fresh data
+    _symbol_index._load()
 
 
 # === Tool Registry (MCP format) ===
