@@ -57,9 +57,9 @@ class Embedder:
         # Embed only the misses
         if miss_texts:
             miss_vectors = self._embed_all(miss_texts, batch_size)
-            for idx, vec in zip(miss_indices, miss_vectors):
+            for i, (idx, vec) in enumerate(zip(miss_indices, miss_vectors)):
                 cached[idx] = vec
-                self._cache.set(miss_texts[miss_indices.index(idx)], self.model, vec)
+                self._cache.set(miss_texts[i], self.model, vec)
 
         # Reconstruct in original order
         return [cached[i] for i in range(len(texts))]
