@@ -123,9 +123,13 @@ def load_config(path: Optional[str] = None) -> Config:
 
     # Ensure output directories exist on first run (components also create
     # their own dirs, but this guarantees the base output/ tree is in place).
-    for dir_path in (chroma_dir, os.path.dirname(symbol_index_path), os.path.dirname(index_state_path)):
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
+    # Only when the config file actually exists — if it doesn't, the resolved
+    # dirs may point under a non-existent parent (e.g. /no/such/output/...)
+    # and components will lazily create their own dirs on first use anyway.
+    if os.path.isfile(config_path):
+        for dir_path in (chroma_dir, os.path.dirname(symbol_index_path), os.path.dirname(index_state_path)):
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
 
     return Config(
         chroma_dir=chroma_dir,
