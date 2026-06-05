@@ -125,7 +125,7 @@ This interactive script will:
 Alternatively, copy and edit the template manually:
 
 ```bash
-cp config.example.yaml config.yaml
+cp src/rag/config.example.yaml config.yaml
 # Edit config.yaml: set doc_sources paths
 ```
 
@@ -530,7 +530,6 @@ pytest tests/ -v -k "not slow"
 mcp-doc-rag/
 ├── pyproject.toml
 ├── setup_config.py            # Interactive config setup wizard
-├── config.example.yaml        # Configuration template
 ├── .gitignore
 ├── LICENSE
 ├── README.md
@@ -552,6 +551,7 @@ mcp-doc-rag/
 │       ├── queries.jsonl        # Annotated evaluation dataset
 │       └── baseline.txt         # Baseline metrics record
 └── src/rag/
+    ├── config.example.yaml    # Configuration template
     ├── server.py              # MCP Server (11 tools, stdio JSON-RPC)
     ├── cli.py                 # CLI entry point
     ├── config.py              # YAML config loader

@@ -70,6 +70,12 @@ Issues = "https://github.com/Lang-sl/mcp-doc-rag/issues"
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+rag = [
+    "py.typed",
+    "config.example.yaml",
+]
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-k \"not slow\"')",

@@ -1,0 +1,26 @@
+# Source distribution — include everything needed for development and testing
+
+# Documentation
+include README.md
+include README.zh-CN.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE
+
+# Configuration template (NOT the user's config.yaml)
+include src/rag/config.example.yaml
+
+# Setup wizard
+include setup_config.py
+
+# Test infrastructure
+include tests/__init__.py
+include tests/conftest.py
+
+# Evaluation
+include tests/eval/__init__.py
+include tests/eval/test_metrics.py
+include tests/eval/queries.template.jsonl
+
+# Examples
+include examples/quickstart.py

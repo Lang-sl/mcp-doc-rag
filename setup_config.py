@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-TEMPLATE = Path(__file__).resolve().parent / "config.example.yaml"
+TEMPLATE = Path(__file__).resolve().parent / "src" / "rag" / "config.example.yaml"
 TARGET = Path(__file__).resolve().parent / "config.yaml"
 
 

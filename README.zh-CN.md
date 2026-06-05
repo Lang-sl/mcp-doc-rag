@@ -125,7 +125,7 @@ python setup_config.py
 也可以手动复制并编辑模板：
 
 ```bash
-cp config.example.yaml config.yaml
+cp src/rag/config.example.yaml config.yaml
 # 编辑 config.yaml：设置 doc_sources 路径
 ```
 
@@ -530,7 +530,6 @@ pytest tests/ -v -k "not slow"
 mcp-doc-rag/
 ├── pyproject.toml
 ├── setup_config.py            # 交互式配置向导
-├── config.example.yaml        # 配置模板
 ├── .gitignore
 ├── LICENSE
 ├── README.md
@@ -552,6 +551,7 @@ mcp-doc-rag/
 │       ├── queries.jsonl        # 标注评估数据集
 │       └── baseline.txt         # Baseline 指标记录
 └── src/rag/
+    ├── config.example.yaml    # 配置模板
     ├── server.py              # MCP 服务器（11 个工具，stdio JSON-RPC）
     ├── cli.py                 # CLI 入口
     ├── config.py              # YAML 配置加载器
