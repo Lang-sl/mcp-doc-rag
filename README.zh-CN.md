@@ -213,7 +213,7 @@ doc_sources:
 ollama_host: http://localhost:11434
 embed_model: nomic-embed-text
 embed_dim: 768
-embed_batch_size: 32
+embed_batch_size: 256
 
 # ---- 重排序器 ----
 reranker_model: jinaai/jina-reranker-v2-base-multilingual
@@ -266,7 +266,7 @@ reranker_score_gap_threshold: 0.15  # 0 = 永不跳过重排序器
 reranker_max_candidates: 30          # 送入重排序器的最大候选数（API 类型优先）
 
 # ---- 索引 ----
-index_batch_size: 100
+index_batch_size: 500
 ```
 
 ## MCP 服务器集成

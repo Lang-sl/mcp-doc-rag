@@ -213,7 +213,7 @@ doc_sources:
 ollama_host: http://localhost:11434
 embed_model: nomic-embed-text
 embed_dim: 768
-embed_batch_size: 32
+embed_batch_size: 256
 
 # ---- Reranker ----
 reranker_model: jinaai/jina-reranker-v2-base-multilingual
@@ -266,7 +266,7 @@ reranker_score_gap_threshold: 0.15  # 0 = never skip reranker
 reranker_max_candidates: 30          # max candidates for reranker (API prioritized)
 
 # ---- Index ----
-index_batch_size: 100
+index_batch_size: 500
 ```
 
 ## MCP Server Integration

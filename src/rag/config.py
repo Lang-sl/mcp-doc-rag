@@ -24,7 +24,7 @@ class Config:
     ollama_host: str = "http://localhost:11434"
     embed_model: str = "nomic-embed-text"
     embed_dim: int = 768
-    embed_batch_size: int = 64
+    embed_batch_size: int = 256
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
     reranker_max_length: int = 512
     chunk_max_chars: int = 2000

@@ -23,6 +23,9 @@
 - `reranker_score_gap_threshold: 0.15`
 - `reranker_max_candidates: 30`
 
+### Changed (performance)
+- `embed_batch_size` default increased from 64 → 256 (2.9× Ollama embedding throughput: 23 → 67 texts/s). Batch 512 returns HTTP 400 from Ollama; 256 is the practical maximum for `nomic-embed-text`.
+
 ### Added (dependencies)
 - `tree-sitter` and `tree-sitter-cpp` (optional, for C++ header AST parsing). Install with `pip install ".[header-ast]"`.
 
