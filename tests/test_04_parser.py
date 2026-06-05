@@ -169,6 +169,7 @@ class TestHeaderParserComments:
         os.remove(tmp)
 
 
+@pytest.mark.skipif(not _HAS_TREE_SITTER, reason="tree-sitter not installed")
 class TestHeaderParserAdvanced:
     """Verify complex template and nested class handling."""
 

@@ -264,7 +264,19 @@ if _HAS_TREE_SITTER:
                                 file_path,
                                 current_class,
                             )
-                pending_comments = []
+                    pending_comments = []
+                else:
+                    # Not a function — recurse to find nested class/enum/typedef
+                    _extract_elements(
+                        child,
+                        source_bytes,
+                        results,
+                        source_label,
+                        source_module,
+                        file_path,
+                        current_class,
+                    )
+                    pending_comments = []
 
             elif child.type == "field_declaration":
                 # A field_declaration can contain a function_declarator (method)
@@ -495,14 +507,24 @@ if _HAS_TREE_SITTER:
     def _extract_func_name_ts(
         func_decl: Any, source_bytes: bytes
     ) -> str | None:
-        """Extract function name from a function_declarator node."""
-        for child in func_decl.children:
-            if child.type in ("identifier", "field_identifier"):
-                return child.text.decode("utf-8", errors="replace").strip()
-            if child.type == "operator_name":
-                return child.text.decode("utf-8", errors="replace").strip()
-            if child.type == "destructor_name":
-                return child.text.decode("utf-8", errors="replace").strip()
+        """Extract function name from a function_declarator node.
+
+        Searches the subtree (not just direct children) so that identifiers
+        nested inside ``declarator`` or ``parenthesized_declarator`` wrappers
+        are found across different tree-sitter-cpp grammar versions.
+        """
+        # Search for operator_name / destructor_name first — they can
+        # never appear inside a parameter list, whereas "identifier" can
+        # (e.g. parameter names like "other" in "operator+(const Vec3& other)").
+        for child_type in (
+            "operator_name",
+            "destructor_name",
+            "identifier",
+            "field_identifier",
+        ):
+            node = _find_in_subtree(func_decl, child_type)
+            if node is not None:
+                return node.text.decode("utf-8", errors="replace").strip()
         return None
 
     def _extract_params_ts(
