@@ -202,8 +202,8 @@ python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
 
 ```yaml
 # ---- 路径（相对于项目根目录） ----
-chroma_dir: ./chroma_db
-symbol_index_path: ./symbol_index.json
+chroma_dir: ./output/chroma_db
+symbol_index_path: ./output/symbol_index.json
 
 # ---- 文档源（标签: 路径） ----
 doc_sources:
@@ -258,8 +258,8 @@ query_rewrite_max_variants: 3
 
 # ---- 缓存 ----
 cache_max_entries: 128
-embedding_cache_dir: ./chroma_db/embedding_cache
-bm25_cache_dir: ./chroma_db/bm25_cache
+embedding_cache_dir: ./output/chroma_db/embedding_cache
+bm25_cache_dir: ./output/chroma_db/bm25_cache
 
 # ---- 重排序器优化 ----
 reranker_score_gap_threshold: 0.15  # 0 = 永不跳过重排序器
@@ -433,7 +433,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **重排序器优化。** 当 RRF top1-top2 分差较大（> `reranker_score_gap_threshold`）时自动跳过重排序器，仅将前 30 个候选（API 类型优先）送入跨编码器。这在不损害搜索质量的前提下降低了每次查询的延迟。设置 `reranker_score_gap_threshold: 0` 可永不跳过。
 - **Ollama 必须在运行。** 使用 `ollama serve` 启动或确保 Windows 服务正在运行。
 - **重排序器下载。** 首次 `search_docs` 调用会下载 jina-reranker 模型（~1.1GB），仅此一次。索引后运行一次测试搜索可提前下载。重排序器包含 transformers >= 4.46 的自动兼容性补丁。
-- **ChromaDB 存储。** 向量数据库默认存放在项目目录下的 `./chroma_db`。对于大型文档集可能增长到数 GB——如需其他位置，请在 config.yaml 中配置 `chroma_dir`。
+- **ChromaDB 存储。** 向量数据库默认存放在项目目录下的 `./output/chroma_db`。对于大型文档集可能增长到数 GB——如需其他位置，请在 config.yaml 中配置 `chroma_dir`。
 
 ### 文档源
 

@@ -202,8 +202,8 @@ Full `config.yaml` with defaults (see also `config.example.yaml`):
 
 ```yaml
 # ---- Paths (relative to project root) ----
-chroma_dir: ./chroma_db
-symbol_index_path: ./symbol_index.json
+chroma_dir: ./output/chroma_db
+symbol_index_path: ./output/symbol_index.json
 
 # ---- Document Sources (label: path) ----
 doc_sources:
@@ -258,8 +258,8 @@ query_rewrite_max_variants: 3
 
 # ---- Cache ----
 cache_max_entries: 128
-embedding_cache_dir: ./chroma_db/embedding_cache
-bm25_cache_dir: ./chroma_db/bm25_cache
+embedding_cache_dir: ./output/chroma_db/embedding_cache
+bm25_cache_dir: ./output/chroma_db/bm25_cache
 
 # ---- Reranker Optimization ----
 reranker_score_gap_threshold: 0.15  # 0 = never skip reranker
@@ -433,7 +433,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **Reranker optimization.** The reranker is automatically skipped when the RRF top1-top2 gap is large (> `reranker_score_gap_threshold`), and only the top 30 candidates (API types prioritized) are sent to the cross-encoder. This reduces per-query latency without hurting quality. Set `reranker_score_gap_threshold: 0` to never skip.
 - **Ollama must be running.** Start it with `ollama serve` or ensure the Windows service is running.
 - **Reranker download.** The first `search_docs` call will download the jina-reranker model (~1.1GB). This is one-time. Pre-download by running a test search after indexing. The reranker includes an automatic compatibility patch for transformers >= 4.46.
-- **ChromaDB storage.** The vector database defaults to `./chroma_db` inside the project directory. It can grow to several GB for large doc sets — configure `chroma_dir` in config.yaml if you need it elsewhere.
+- **ChromaDB storage.** The vector database defaults to `./output/chroma_db` inside the project directory. It can grow to several GB for large doc sets — configure `chroma_dir` in config.yaml if you need it elsewhere.
 
 ### Document Sources
 

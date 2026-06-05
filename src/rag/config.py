@@ -17,9 +17,9 @@ class BM25Weights:
 
 @dataclass
 class Config:
-    chroma_dir: str = "./chroma_db"
-    symbol_index_path: str = "./symbol_index.json"
-    index_state_path: str = "./.index_state.json"
+    chroma_dir: str = "./output/chroma_db"
+    symbol_index_path: str = "./output/symbol_index.json"
+    index_state_path: str = "./output/.index_state.json"
     doc_sources: dict[str, str] = field(default_factory=dict)
     ollama_host: str = "http://localhost:11434"
     embed_model: str = "nomic-embed-text"
@@ -44,8 +44,8 @@ class Config:
     query_rewrite_enabled: bool = True
     query_rewrite_max_variants: int = 3
     rrf_bm25_weight: float = 2.0
-    embedding_cache_dir: str = "./chroma_db/embedding_cache"
-    bm25_cache_dir: str = "./chroma_db/bm25_cache"
+    embedding_cache_dir: str = "./output/chroma_db/embedding_cache"
+    bm25_cache_dir: str = "./output/chroma_db/bm25_cache"
     reranker_score_gap_threshold: float = 0.15
     reranker_max_candidates: int = 30
 
@@ -117,10 +117,20 @@ def load_config(path: Optional[str] = None) -> Config:
     if "bm25_weights" in yaml_data and isinstance(yaml_data["bm25_weights"], dict):
         bm25 = _dict_to_bm25_weights(yaml_data["bm25_weights"])
 
+    chroma_dir = _resolve_path(_get("chroma_dir", defaults.chroma_dir), config_dir)
+    symbol_index_path = _resolve_path(_get("symbol_index_path", defaults.symbol_index_path), config_dir)
+    index_state_path = _resolve_path(_get("index_state_path", defaults.index_state_path), config_dir)
+
+    # Ensure output directories exist on first run (components also create
+    # their own dirs, but this guarantees the base output/ tree is in place).
+    for dir_path in (chroma_dir, os.path.dirname(symbol_index_path), os.path.dirname(index_state_path)):
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
     return Config(
-        chroma_dir=_resolve_path(_get("chroma_dir", defaults.chroma_dir), config_dir),
-        symbol_index_path=_resolve_path(_get("symbol_index_path", defaults.symbol_index_path), config_dir),
-        index_state_path=_resolve_path(_get("index_state_path", defaults.index_state_path), config_dir),
+        chroma_dir=chroma_dir,
+        symbol_index_path=symbol_index_path,
+        index_state_path=index_state_path,
         doc_sources=_get("doc_sources", defaults.doc_sources),
         ollama_host=_get("ollama_host", defaults.ollama_host),
         embed_model=_get("embed_model", defaults.embed_model),

@@ -25,9 +25,8 @@ env/
 .coverage
 htmlcov/
 
-# ChromaDB data (generated locally)
-chroma_db/
-*.chroma/
+# Generated output (index, cache, DB — all local)
+output/
 
 # User config (copy from config.example.yaml)
 config.yaml
@@ -35,11 +34,6 @@ config.yaml
 # Eval data (copy from template and annotate with your own chunk_ids)
 tests/eval/queries.jsonl
 tests/eval/baseline.txt
-
-# Index state (generated locally)
-.index_state.json
-symbol_index.json
-*.index_state*.json
 
 # Ollama models (large, downloaded separately)
 ollama_models/

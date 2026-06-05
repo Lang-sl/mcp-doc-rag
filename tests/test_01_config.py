@@ -18,7 +18,7 @@ class TestConfigDefaults:
 
     def test_default_chroma_dir(self):
         config = Config()
-        assert config.chroma_dir == "./chroma_db"
+        assert config.chroma_dir == "./output/chroma_db"
 
     def test_default_embed_dim(self):
         config = Config()
@@ -67,7 +67,7 @@ class TestLoadConfig:
         assert config.embed_dim == 384
         # Unspecified fields keep defaults, resolved relative to config file dir
         import pathlib
-        assert config.chroma_dir == str(pathlib.Path(tmp).parent / "chroma_db")
+        assert config.chroma_dir == str(pathlib.Path(tmp).parent / "output" / "chroma_db")
 
         os.remove(tmp)
 
