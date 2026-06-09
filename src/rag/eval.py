@@ -13,6 +13,14 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class StageEvalResult:
+    """Aggregated per-stage metrics."""
+    recall_at_5: float = 0.0
+    recall_at_10: float = 0.0
+    mrr: float = 0.0
+
+
+@dataclass
 class EvalResult:
     """Aggregated evaluation results across all queries."""
     recall_at_1: float = 0.0
@@ -27,6 +35,14 @@ class EvalResult:
     zero_recall_queries: list[str] = field(default_factory=list)
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
+    # Per-stage metrics (populated when eval_mode=True is passed to evaluate())
+    stages: dict[str, StageEvalResult] = field(default_factory=dict)
+    # Bad case classification
+    bad_cases: list[dict] = field(default_factory=list)
+    num_knowledge_gap: int = 0
+    num_ranking_failure: int = 0
+    num_rewrite_regression: int = 0
+    num_reranker_regression: int = 0
 
 
 def recall_at_k(
@@ -93,6 +109,99 @@ def ndcg_at_k(
     return actual_dcg / ideal_dcg
 
 
+def _classify_bad_case(
+    query: str,
+    trace,  # PipelineTrace | None
+    relevant_ids: set[str],
+    final_recall_at_10: float,
+) -> list[dict]:
+    """Classify a zero-recall query into one or more bad-case categories."""
+    bad: list[dict] = []
+
+    bm25_recall = trace.recall_at("bm25", relevant_ids, 10) if trace else 0.0
+    vec_recall = trace.recall_at("vector", relevant_ids, 10) if trace else 0.0
+    rrf_recall = trace.recall_at("rrf", relevant_ids, 10) if trace else 0.0
+    reranker_recall = trace.recall_at("reranker", relevant_ids, 10) if trace else 0.0
+
+    # knowledge_gap: neither BM25 nor vector found anything
+    if bm25_recall == 0.0 and vec_recall == 0.0:
+        bad.append({
+            "query": query,
+            "category": "knowledge_gap",
+            "detail": (
+                "No relevant chunks in any index "
+                "(BM25 Recall@10=0, Vector Recall@10=0)"
+            ),
+        })
+
+    # ranking_failure: BM25 or vector found it but final results lost it
+    if (bm25_recall > 0.0 or vec_recall > 0.0) and final_recall_at_10 == 0.0:
+        bad.append({
+            "query": query,
+            "category": "ranking_failure",
+            "detail": (
+                f"BM25 found relevant chunks (R@10={bm25_recall:.2f}) but "
+                f"none survived to final top-10"
+            ),
+        })
+
+    # reranker_regression: reranker made things worse
+    if rrf_recall > 0.0 and reranker_recall < rrf_recall:
+        bad.append({
+            "query": query,
+            "category": "reranker_regression",
+            "detail": (
+                f"RRF Recall@10={rrf_recall:.2f} dropped to "
+                f"{reranker_recall:.2f} after reranker"
+            ),
+        })
+
+    return bad
+
+
+def _aggregate_stage_metrics(
+    traces: list,  # list[PipelineTrace]
+    relevant_ids_map: dict[str, set[str]],
+) -> dict[str, StageEvalResult]:
+    """Aggregate per-stage Recall@5, Recall@10, MRR across all queries."""
+    stage_names = ["bm25", "vector", "rrf", "reranker", "final"]
+    stage_data: dict[str, dict[str, list[float]]] = {
+        s: {"recall_5": [], "recall_10": [], "mrr": []}
+        for s in stage_names
+    }
+
+    for trace in traces:
+        relevant = relevant_ids_map.get(trace.query, set())
+        for stage in stage_names:
+            r5 = trace.recall_at(stage, relevant, 5)
+            r10 = trace.recall_at(stage, relevant, 10)
+            # Approximate MRR from trace results
+            mrr_val = 0.0
+            stage_results = None
+            for t in trace.traces:
+                if t.stage == stage:
+                    stage_results = t.results
+                    break
+            if stage_results and relevant:
+                for i, cid in enumerate(stage_results, start=1):
+                    if cid in relevant:
+                        mrr_val = 1.0 / i
+                        break
+
+            stage_data[stage]["recall_5"].append(r5)
+            stage_data[stage]["recall_10"].append(r10)
+            stage_data[stage]["mrr"].append(mrr_val)
+
+    result: dict[str, StageEvalResult] = {}
+    for stage in stage_names:
+        result[stage] = StageEvalResult(
+            recall_at_5=_safe_mean(stage_data[stage]["recall_5"]),
+            recall_at_10=_safe_mean(stage_data[stage]["recall_10"]),
+            mrr=_safe_mean(stage_data[stage]["mrr"]),
+        )
+    return result
+
+
 def evaluate(
     retriever,
     queries_path: str,
@@ -136,15 +245,29 @@ def evaluate(
     all_ndcg: dict[int, list[float]] = {k: [] for k in k_values}
     all_latency: list[float] = []
     zero_recall_queries: list[str] = []
+    traces: list = []  # list of PipelineTrace for per-stage analysis
+    all_bad_cases: list[dict] = []
 
     for q in queries:
         query_text = q["query"]
         relevant = set(q["relevant_chunk_ids"])
 
         t0 = time.perf_counter()
-        results = retriever.search(query_text, source_label=source_label, enable_rewrite=enable_rewrite)
+        raw_result = retriever.search(
+            query_text,
+            source_label=source_label,
+            enable_rewrite=enable_rewrite,
+            eval_mode=True,
+        )
         elapsed_ms = (time.perf_counter() - t0) * 1000
         all_latency.append(elapsed_ms)
+
+        # Unpack trace from result
+        query_trace = None
+        if isinstance(raw_result, tuple):
+            results, query_trace = raw_result
+        else:
+            results = raw_result
 
         retrieved_ids = [r.chunk.chunk_id for r in results]
 
@@ -157,10 +280,19 @@ def evaluate(
         for k in k_values:
             all_ndcg[k].append(ndcg_at_k(retrieved_ids, relevant, k))
 
+        # Collect trace for per-stage analysis
+        if query_trace is not None:
+            traces.append(query_trace)
+
         # A query has zero recall when none of its relevant chunks appear
         # at the largest K value.
-        if all_recall[max(k_values)][-1] == 0.0:
+        final_recall = all_recall[max(k_values)][-1]
+        if final_recall == 0.0:
             zero_recall_queries.append(query_text)
+            if query_trace is not None:
+                all_bad_cases.extend(
+                    _classify_bad_case(query_text, query_trace, relevant, final_recall)
+                )
 
     result = EvalResult(
         num_queries=len(queries),
@@ -170,6 +302,24 @@ def evaluate(
         latency_p50_ms=_percentile(all_latency, 50),
         latency_p95_ms=_percentile(all_latency, 95),
     )
+
+    # Per-stage metrics aggregation
+    if traces:
+        relevant_ids_map = {q["query"]: set(q["relevant_chunk_ids"]) for q in queries}
+        result.stages = _aggregate_stage_metrics(traces, relevant_ids_map)
+
+        # Attach bad cases and count categories
+        result.bad_cases = all_bad_cases
+        for bc in result.bad_cases:
+            cat = bc["category"]
+            if cat == "knowledge_gap":
+                result.num_knowledge_gap += 1
+            elif cat == "ranking_failure":
+                result.num_ranking_failure += 1
+            elif cat == "rewrite_regression":
+                result.num_rewrite_regression += 1
+            elif cat == "reranker_regression":
+                result.num_reranker_regression += 1
 
     for k in k_values:
         setattr(result, f"recall_at_{k}", _safe_mean(all_recall[k]))
