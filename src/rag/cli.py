@@ -44,6 +44,44 @@ def _print_reindex_summary(sources: dict[str, dict], total_chunks: int) -> None:
         print(f"  {label}: {elapsed:.1f}s total, embed={embed:.1f}s ({pct:.0f}%)")
 
 
+def _print_bad_cases(result) -> None:
+    """Print only the bad case analysis."""
+    print(f"Bad Cases ({result.num_queries} queries)")
+    print(f"  knowledge_gap:      {result.num_knowledge_gap}")
+    print(f"  ranking_failure:    {result.num_ranking_failure}")
+    print(f"  rewrite_regression: {result.num_rewrite_regression}")
+    print(f"  reranker_regression: {result.num_reranker_regression}")
+    if result.bad_cases:
+        print()
+        for bc in result.bad_cases:
+            print(f"[{bc['category']}] {bc['query']}")
+            print(f"  {bc['detail']}")
+
+
+def _run_compare_rewrite(config, args) -> None:
+    """Compare three rewrite modes: none vs rule vs LLM."""
+    from rag.retriever.hybrid import HybridRetriever
+    from rag.eval import evaluate
+
+    print("=== Comparison: No Rewrite ===")
+    retriever = HybridRetriever(config)
+    r0 = evaluate(retriever, args.queries, source_label=args.source_label, enable_rewrite=False)
+    print(f"  Recall@5={r0.recall_at_5:.3f}  Recall@10={r0.recall_at_10:.3f}  MRR={r0.mrr:.3f}  Zero-recall={r0.num_zero_recall}")
+
+    print()
+    print("=== Comparison: Rule Rewrite ===")
+    r1 = evaluate(retriever, args.queries, source_label=args.source_label, enable_rewrite=True)
+    print(f"  Recall@5={r1.recall_at_5:.3f}  Recall@10={r1.recall_at_10:.3f}  MRR={r1.mrr:.3f}  Zero-recall={r1.num_zero_recall}")
+
+    print()
+    print("--- Summary ---")
+    print(f"{'Metric':<18} {'No Rewrite':>11} {'Rule':>11} {'Delta':>11}")
+    for metric, attr in [("Recall@5", "recall_at_5"), ("Recall@10", "recall_at_10"), ("MRR", "mrr")]:
+        v0 = getattr(r0, attr)
+        v1 = getattr(r1, attr)
+        print(f"{metric:<18} {v0:>11.3f} {v1:>11.3f} {v1 - v0:>+11.3f}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="rag",
@@ -89,6 +127,8 @@ def main() -> None:
     p_eval.add_argument("--queries", required=True, help="Path to JSONL queries file")
     p_eval.add_argument("--source", dest="source_label", default=None)
     p_eval.add_argument("--enable-rewrite", action="store_true", help="Enable query rewrite during evaluation")
+    p_eval.add_argument("--bad-cases-only", action="store_true", help="Output only bad case analysis")
+    p_eval.add_argument("--compare-rewrite", action="store_true", help="Compare LLM rewrite vs rule rewrite vs none")
 
     # status
     sub.add_parser("status", help="Show index status")
@@ -212,6 +252,10 @@ def main() -> None:
         from rag.eval import evaluate
         from rag.retriever.hybrid import HybridRetriever
 
+        if args.compare_rewrite:
+            _run_compare_rewrite(config, args)
+            return
+
         retriever = HybridRetriever(config)
 
         result = evaluate(
@@ -220,6 +264,10 @@ def main() -> None:
             source_label=args.source_label,
             enable_rewrite=args.enable_rewrite,
         )
+
+        if args.bad_cases_only:
+            _print_bad_cases(result)
+            return
 
         print("=" * 50)
         print("Retrieval Evaluation Results")
@@ -235,9 +283,33 @@ def main() -> None:
         print(f"Latency p50:        {result.latency_p50_ms:.1f}ms")
         print(f"Latency p95:        {result.latency_p95_ms:.1f}ms")
         print(f"Zero-recall queries: {result.num_zero_recall}/{result.num_queries}")
+
+        # Per-stage metrics
+        if result.stages:
+            print()
+            print("--- Per-Stage Metrics ---")
+            print(f"{'Stage':<12} {'Recall@5':>9} {'Recall@10':>9} {'MRR':>8}")
+            for stage_name in ["bm25", "vector", "rrf", "reranker", "final"]:
+                s = result.stages.get(stage_name)
+                if s and (s.recall_at_5 > 0 or s.recall_at_10 > 0):
+                    print(f"{stage_name:<12} {s.recall_at_5:>9.3f} {s.recall_at_10:>9.3f} {s.mrr:>8.3f}")
+
+        # Bad cases
+        print()
+        print(f"--- Bad Cases ---")
+        print(f"knowledge_gap: {result.num_knowledge_gap}    "
+              f"ranking_failure: {result.num_ranking_failure}    "
+              f"rewrite_regression: {result.num_rewrite_regression}    "
+              f"reranker_regression: {result.num_reranker_regression}")
+        if result.bad_cases:
+            print()
+            for bc in result.bad_cases[:10]:
+                print(f"[{bc['category']}] {bc['query']}")
+                print(f"  {bc['detail']}")
+
         if result.zero_recall_queries:
-            print("-" * 50)
-            print("Queries with zero recall (need most improvement):")
+            print()
+            print("--- All Zero-Recall Queries ---")
             for q in result.zero_recall_queries:
                 print(f"  - {q}")
         print("=" * 50)
