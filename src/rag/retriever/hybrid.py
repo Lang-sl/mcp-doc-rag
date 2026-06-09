@@ -16,6 +16,8 @@ from rag.models import Chunk, SearchResult
 from rag.retriever.vector_search import vector_search
 from rag.retriever.bm25_search import BM25Searcher
 from rag.retriever.reranker import Reranker
+from rag.retriever.query_rewriter import expand as _rule_expand
+from rag.retriever.query_rewriter import LLMQueryRewriter
 
 
 def _select_for_rerank(
@@ -80,6 +82,15 @@ class HybridRetriever:
         self.reranker = Reranker(config.reranker_model, config.reranker_max_length)
         self._bm25 = BM25Searcher(cache_dir=config.bm25_cache_dir)
 
+        # LLM Query Rewriter (only if configured)
+        self._llm_rewriter = None
+        if getattr(config, "query_rewrite_llm_model", None):
+            self._llm_rewriter = LLMQueryRewriter(
+                config.ollama_host,
+                config.query_rewrite_llm_model,
+                config.query_rewrite_llm_timeout_ms,
+            )
+
         # LRU cache keyed by (query, source_label, module, top_k)
         self._cache: OrderedDict[str, list[dict]] = OrderedDict()
 
@@ -137,28 +148,35 @@ class HybridRetriever:
 
         candidate_count = top_k * self.config.candidate_expand_factor
 
-        # Step 1: Vector search
-        vec_results = vector_search(
-            self.client, self.embedder, self.config,
-            query, candidate_count, source_label,
-        )
-
-        # Step 2: BM25 search (uses cached indices)
+        # Step 1: BM25 search (uses cached indices, original query)
         bm25_results = self._bm25.search(
             self.client, self.config, query, candidate_count, source_label,
         )
 
-        # Step 2b: Query rewrite — expand BM25 with synonym variants
+        # Step 1b: Query rewrite — LLM (with fallback to rule-based)
+        rewrite_queries: list[str] = []
+        search_query: str = query  # The query used for vector search
         if enable_rewrite:
-            from rag.retriever.query_rewriter import expand
+            rewritten = None
+            if self._llm_rewriter:
+                rewritten = self._llm_rewriter.rewrite(query)
 
-            variants = expand(query, self.config.query_rewrite_max_variants)
-            if len(variants) > 1:
+            if rewritten and rewritten.completed:
+                search_query = rewritten.completed
+                rewrite_queries.extend(rewritten.variants)
+                rewrite_queries.extend(rewritten.sub_queries)
+            else:
+                # Fallback to rule-based expand()
+                variants = _rule_expand(query, self.config.query_rewrite_max_variants)
+                if len(variants) > 1:
+                    rewrite_queries.extend(variants[1:])  # first is original
+
+            if rewrite_queries:
                 all_bm25: list[SearchResult] = list(bm25_results)
-                for v in variants[1:]:  # first variant is the original query
+                for vq in rewrite_queries:
                     all_bm25.extend(
                         self._bm25.search(
-                            self.client, self.config, v, candidate_count, source_label,
+                            self.client, self.config, vq, candidate_count, source_label,
                         )
                     )
                 # Deduplicate by chunk_id, preserving the highest score
@@ -168,6 +186,12 @@ class HybridRetriever:
                         seen_bm25[r.chunk.chunk_id] = r
                 bm25_results = sorted(seen_bm25.values(), key=lambda r: r.score, reverse=True)
                 bm25_results = bm25_results[:candidate_count]
+
+        # Step 2: Vector search (uses best single query — LLM completed, or original)
+        vec_results = vector_search(
+            self.client, self.embedder, self.config,
+            search_query, candidate_count, source_label,
+        )
 
         # Step 3: RRF fusion
         fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count, self.config.rrf_bm25_weight)
