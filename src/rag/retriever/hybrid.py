@@ -12,7 +12,7 @@ import chromadb
 
 from rag.config import Config
 from rag.indexer.embedder import Embedder
-from rag.models import Chunk, SearchResult
+from rag.models import Chunk, SearchResult, PipelineTrace, StageTrace
 from rag.retriever.vector_search import vector_search
 from rag.retriever.bm25_search import BM25Searcher
 from rag.retriever.reranker import Reranker
@@ -126,7 +126,8 @@ class HybridRetriever:
         module: str | None = None,
         skip_rerank: bool = False,
         enable_rewrite: bool = False,
-    ) -> list[SearchResult]:
+        eval_mode: bool = False,
+    ) -> list[SearchResult] | tuple[list[SearchResult], PipelineTrace]:
         """Run the full retrieval pipeline.
 
         Set *skip_rerank* to True for exact symbol/API lookups where
@@ -136,6 +137,9 @@ class HybridRetriever:
         Set *enable_rewrite* to True to expand natural-language queries
         with domain synonyms before BM25 search, improving recall for
         conceptual queries without affecting symbol/API lookups.
+
+        Set *eval_mode* to True to return per-stage PipelineTrace alongside
+        results for offline evaluation and debugging.
         """
         if top_k is None:
             top_k = self.config.top_k_default
@@ -147,6 +151,9 @@ class HybridRetriever:
             return cached
 
         candidate_count = top_k * self.config.candidate_expand_factor
+
+        # Trace pipeline stages when eval_mode is enabled
+        trace = PipelineTrace(query=query) if eval_mode else None
 
         # Step 1: BM25 search (uses cached indices, original query)
         bm25_results = self._bm25.search(
@@ -187,14 +194,34 @@ class HybridRetriever:
                 bm25_results = sorted(seen_bm25.values(), key=lambda r: r.score, reverse=True)
                 bm25_results = bm25_results[:candidate_count]
 
+        if eval_mode and trace is not None:
+            trace.traces.append(StageTrace(
+                stage="bm25",
+                results=[r.chunk.chunk_id for r in bm25_results],
+            ))
+            if rewrite_queries:
+                trace.rewrite_variants = rewrite_queries
+
         # Step 2: Vector search (uses best single query — LLM completed, or original)
         vec_results = vector_search(
             self.client, self.embedder, self.config,
             search_query, candidate_count, source_label,
         )
 
+        if eval_mode and trace is not None:
+            trace.traces.append(StageTrace(
+                stage="vector",
+                results=[r.chunk.chunk_id for r in vec_results],
+            ))
+
         # Step 3: RRF fusion
         fused = _rrf_fuse(vec_results, bm25_results, self.config.rrf_k, candidate_count, self.config.rrf_bm25_weight)
+
+        if eval_mode and trace is not None:
+            trace.traces.append(StageTrace(
+                stage="rrf",
+                results=[r.chunk.chunk_id for r in fused],
+            ))
 
         # Step 4: Reranker (skip for symbol/API lookups, large top1-top2 gap, or no candidates)
         should_rerank = not skip_rerank and not _is_symbol_lookup(query)
@@ -208,6 +235,12 @@ class HybridRetriever:
                 fused = self.reranker.rerank(query, rerank_candidates)
             except Exception:
                 pass  # Reranker unavailable — continue with RRF scores
+
+        if eval_mode and trace is not None:
+            trace.traces.append(StageTrace(
+                stage="reranker",
+                results=[r.chunk.chunk_id for r in fused],
+            ))
 
         # Step 5: Code boost
         query_lower = query.lower()
@@ -228,9 +261,18 @@ class HybridRetriever:
 
         top_results = fused[:top_k]
 
-        # Cache
-        self._set_cache(query, source_label, module, top_k, top_results)
+        if eval_mode and trace is not None:
+            trace.traces.append(StageTrace(
+                stage="final",
+                results=[r.chunk.chunk_id for r in top_results],
+            ))
 
+        # Cache (skip when eval_mode to avoid caching instrumented results differently)
+        if not eval_mode:
+            self._set_cache(query, source_label, module, top_k, top_results)
+
+        if eval_mode and trace is not None:
+            return top_results, trace
         return top_results
 
 
