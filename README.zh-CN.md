@@ -252,9 +252,11 @@ ref_expansion_max: 5
 # ---- 上下文构建 ----
 context_max_tokens: 6000
 
-# ---- 查询改写 ----
+# ---- 查询改写 (LLM) ----
 query_rewrite_enabled: true
 query_rewrite_max_variants: 3
+query_rewrite_llm_model: null           # 可选，本地LLM模型
+query_rewrite_llm_timeout_ms: 2000      # LLM响应最大等待时间
 
 # ---- 缓存 ----
 cache_max_entries: 128
@@ -450,7 +452,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **代码加权触发词**——包含 "how to"、"example"、"create"、"implement" 等词的查询会对含代码的 chunk 增加 +20% 权重。
 - **引用扩展**——Top 结果自动拉取引用的符号（1 跳，最多 +5）。当文档源包含 `see_also` 章节时效果最佳。
 - **BM25 权重**——面向 API 搜索时，symbol_name（×10）和 signature（×5）的权重高于 remarks（×1）和 example（×0.5）。对于以叙述为主的文档，可在 config.yaml 中调整。
-- **查询改写**——自然语言查询自动通过领域同义词扩展（如 "setup" → "initialize"、"configure"），提升 BM25 召回率。符号/API 查询不会改写。通过 `query_rewrite_enabled` 和 `query_rewrite_max_variants` 配置。
+- **查询改写**——自然语言查询可被改写以提升召回率。两种模式：基于规则（默认，始终可用）和基于LLM（可选，需在Ollama中拉取 qwen2.5:3b）。设置 `query_rewrite_llm_model` 启用LLM模式；失败时自动回退到规则引擎。LLM新增：查询补全、子查询拆解、语义变体生成。
 - **评估检索质量**——使用 `python -m rag eval` 量化检索效果。需要在 `tests/eval/queries.jsonl` 中提供标注查询。在调优流程中可追踪 Recall@K、MRR、NDCG@K 等指标变化。
 
 ### 故障排除
@@ -504,6 +506,8 @@ pytest tests/ -v -k "not slow"
 | 9 | `test_09_search.py` | 向量 ANN、BM25 关键词、混合流水线、符号查找、加权 RRF、BM25 磁盘持久化 | 阶段 8 + 已索引 ChromaDB 数据 |
 | 10 | `test_10_query_rewriter.py` | 查询改写同义词扩展 | 阶段 8 |
 | 11 | `test_11_e2e.py` | 完整流水线：索引小文档集 → 搜索 → 验证 | 阶段 8 + 文档文件 |
+| 12 | `test_12_llm_rewriter.py` | LLM 改写器 JSON 解析、失败回退、符号跳过 | 无 |
+| 13 | `test_13_eval_trace.py` | PipelineTrace 召回率、Bad Case 分类 | 无 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
@@ -546,6 +550,8 @@ mcp-doc-rag/
 │   ├── test_09_search.py        # 阶段 9：搜索流水线
 │   ├── test_10_query_rewriter.py   # 阶段 10：查询改写单元测试
 │   ├── test_11_e2e.py           # 阶段 11：完整端到端（慢速）
+│   ├── test_12_llm_rewriter.py   # 阶段 12：LLM 改写器单元测试
+│   ├── test_13_eval_trace.py     # 阶段 13：评估追踪单元测试
 │   └── eval/
 │       ├── test_metrics.py      # 评估指标单元测试
 │       ├── queries.jsonl        # 标注评估数据集

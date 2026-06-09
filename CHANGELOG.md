@@ -26,6 +26,15 @@
 ### Changed (performance)
 - `embed_batch_size` default increased from 64 → 256 (2.9× Ollama embedding throughput: 23 → 67 texts/s). Batch 512 returns HTTP 400 from Ollama; 256 is the practical maximum for `nomic-embed-text`.
 
+- **LLM-based Query Rewriter**: optional Ollama-powered query rewriting (completion, decomposition, variant generation) via `query_rewrite_llm_model` config. Falls back to rule-based engine when model is unavailable or `null`.
+- **Per-stage eval metrics**: `PipelineTrace` records chunk IDs at each retrieval stage (bm25/vector/rrf/reranker/final). `python -m rag eval` now outputs per-stage Recall@5/10 and MRR.
+- **Bad case classification**: zero-recall queries auto-classified into `knowledge_gap`, `ranking_failure`, `rewrite_regression`, `reranker_regression`. `--bad-cases-only` flag for focused analysis.
+- **Rewrite comparison**: `python -m rag eval --compare-rewrite` outputs side-by-side metrics for none vs rule vs LLM rewrite modes.
+
+### Added (config)
+- `query_rewrite_llm_model: null` (optional, e.g. `"qwen2.5:3b"`)
+- `query_rewrite_llm_timeout_ms: 2000`
+
 ### Added (dependencies)
 - `tree-sitter` and `tree-sitter-cpp` (optional, for C++ header AST parsing). Install with `pip install ".[header-ast]"`.
 

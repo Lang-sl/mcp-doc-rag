@@ -189,9 +189,15 @@ python -m rag eval --queries tests/eval/queries.jsonl --source my_sdk
 
 # 3. Record baseline for future comparison
 python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
+
+# 4. Compare rewrite modes
+python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
+
+# 5. Bad case analysis only
+python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 ```
 
-Metrics: Recall@1/3/5/10, MRR, NDCG@5/10, latency p50/p95, zero-recall queries.
+Metrics: Recall@1/3/5/10, MRR, NDCG@5/10, latency p50/p95, per-stage Recall@5/10/MRR (bm25/vector/rrf/reranker/final), bad case classification (knowledge_gap, ranking_failure, rewrite_regression, reranker_regression).
 
 The template contains 35 generic queries (12 API lookups + 23 natural language) —
 replace the API symbols with ones from your SDK and adjust queries to your domain.
@@ -255,6 +261,8 @@ context_max_tokens: 6000
 # ---- Query Rewrite ----
 query_rewrite_enabled: true
 query_rewrite_max_variants: 3
+query_rewrite_llm_model: null           # optional local model for LLM rewrite
+query_rewrite_llm_timeout_ms: 2000      # max wait for LLM response
 
 # ---- Cache ----
 cache_max_entries: 128
@@ -450,7 +458,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
 - **Code boost triggers** — queries containing "how to", "example", "create", "implement", etc. get a +20% boost on code-containing chunks.
 - **Reference expansion** — top results automatically pull in referenced symbols (1-hop, +5 max). This is most effective when your source docs have `see_also` sections.
 - **BM25 weights** — symbol_name (×10) and signature (×5) are weighted higher than remarks (×1) and examples (×0.5) for API-focused searches. Adjust in config.yaml for narrative-heavy docs.
-- **Query rewrite** — natural language queries are automatically expanded with domain synonyms (e.g., "setup" → "initialize", "configure") to improve BM25 recall. Disabled for symbol/API lookups. Configure via `query_rewrite_enabled` and `query_rewrite_max_variants`.
+- **Query rewrite** — natural language queries can be rewritten for better recall. Two modes: rule-based (default, always available) and LLM-based (optional, requires `qwen2.5:3b` or similar pulled in Ollama). Set `query_rewrite_llm_model` to enable LLM mode; it falls back to rules on failure. LLM mode adds completion (fixing partial queries), decomposition (breaking complex questions), and semantic variant generation on top of the rule engine.
 - **Evaluate quality** — measure retrieval quality with `python -m rag eval`. Requires annotated queries in `tests/eval/queries.jsonl`. Track Recall@K, MRR, and NDCG@K changes as you tune the pipeline.
 
 ### Troubleshooting
@@ -504,6 +512,8 @@ pytest tests/ -v -k "not slow"
 | 9 | `test_09_search.py` | Vector ANN, BM25 keyword, hybrid pipeline, symbol lookup, weighted RRF, BM25 disk persistence | Stage 8 + indexed ChromaDB data |
 | 10 | `test_10_query_rewriter.py` | Query rewrite synonym expansion | Stage 8 |
 | 11 | `test_11_e2e.py` | Full pipeline: index small doc set → search → verify | Stage 8 + document files |
+| 12 | `test_12_llm_rewriter.py` | LLM rewriter JSON parsing, fallback on failure, symbol skip | None |
+| 13 | `test_13_eval_trace.py` | PipelineTrace recall, bad case classification | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 
@@ -546,6 +556,8 @@ mcp-doc-rag/
 │   ├── test_09_search.py        # Stage 9: Search pipeline
 │   ├── test_10_query_rewriter.py   # Stage 10: Query rewrite unit tests
 │   ├── test_11_e2e.py           # Stage 11: Full E2E (slow)
+│   ├── test_12_llm_rewriter.py   # Stage 12: LLM rewriter unit tests
+│   ├── test_13_eval_trace.py     # Stage 13: Eval trace unit tests
 │   └── eval/
 │       ├── test_metrics.py      # Metric function unit tests
 │       ├── queries.jsonl        # Annotated evaluation dataset
