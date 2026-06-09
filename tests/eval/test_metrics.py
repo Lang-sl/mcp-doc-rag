@@ -80,3 +80,26 @@ def test_ndcg_at_k_partial_relevant():
     score_bad = ndcg_at_k(["x", "x", "x", "a", "b"], {"a", "b"}, k=5)
     score_good = ndcg_at_k(["a", "b", "x", "x", "x"], {"a", "b"}, k=5)
     assert score_good > score_bad
+
+
+# ---------------------------------------------------------------------------
+# stage aggregation
+# ---------------------------------------------------------------------------
+
+def test_stage_eval_result_defaults():
+    from rag.eval import StageEvalResult
+    s = StageEvalResult()
+    assert s.recall_at_5 == 0.0
+    assert s.recall_at_10 == 0.0
+    assert s.mrr == 0.0
+
+
+def test_eval_result_has_stage_fields():
+    from rag.eval import EvalResult
+    r = EvalResult()
+    assert hasattr(r, "stages")
+    assert isinstance(r.stages, dict)
+    assert hasattr(r, "bad_cases")
+    assert isinstance(r.bad_cases, list)
+    assert hasattr(r, "num_knowledge_gap")
+    assert hasattr(r, "num_ranking_failure")

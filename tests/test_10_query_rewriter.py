@@ -47,3 +47,11 @@ def test_original_always_first():
     """The original query must always be the first element."""
     variants = expand("how to setup the renderer")
     assert variants[0] == "how to setup the renderer"
+
+
+def test_expand_still_importable():
+    """LLMQueryRewriter addition must not break expand() import."""
+    from rag.retriever.query_rewriter import expand
+    result = expand("how to setup")
+    assert len(result) >= 1
+    assert result[0] == "how to setup"
