@@ -26,6 +26,7 @@
 ### Changed (performance)
 - `embed_batch_size` default increased from 64 → 256 (2.9× Ollama embedding throughput: 23 → 67 texts/s). Batch 512 returns HTTP 400 from Ollama; 256 is the practical maximum for `nomic-embed-text`.
 
+- **Query rewrite default changed to off**: `query_rewrite_enabled` now defaults to `false`. Eval shows no-rewrite achieves best Recall@10 (0.722) and lowest latency. Enable explicitly via config or `--enable-rewrite` for experimental LLM mode.
 - **LLM-based Query Rewriter**: optional Ollama-powered query rewriting (completion, decomposition, variant generation) via `query_rewrite_llm_model` config. Falls back to rule-based engine when model is unavailable or `null`.
 - **Per-stage eval metrics**: `PipelineTrace` records chunk IDs at each retrieval stage (bm25/vector/rrf/reranker/final). `python -m rag eval` now outputs per-stage Recall@5/10 and MRR.
 - **Bad case classification**: zero-recall queries auto-classified into `knowledge_gap`, `ranking_failure`, `rewrite_regression`, `reranker_regression`. `--bad-cases-only` flag for focused analysis.

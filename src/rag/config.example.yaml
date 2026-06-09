@@ -72,7 +72,7 @@ reranker_max_candidates: 30           # max candidates fed to reranker (API prio
 # Set query_rewrite_llm_model to pull a local model (e.g. "qwen2.5:3b") for
 # intelligent completion/decomposition/variant generation via Ollama chat API.
 # When null (or model not available), falls back to the built-in rule engine.
-query_rewrite_enabled: true
+query_rewrite_enabled: false             # enable to rewrite queries before BM25 search
 query_rewrite_max_variants: 3
 query_rewrite_llm_model: null           # e.g. "qwen2.5:3b"
 query_rewrite_llm_timeout_ms: 2000      # max wait for Ollama response

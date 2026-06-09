@@ -253,7 +253,7 @@ ref_expansion_max: 5
 context_max_tokens: 6000
 
 # ---- 查询改写 (LLM) ----
-query_rewrite_enabled: true
+query_rewrite_enabled: false            # 默认关闭——不改写效果最好
 query_rewrite_max_variants: 3
 query_rewrite_llm_model: null           # 可选，本地LLM模型
 query_rewrite_llm_timeout_ms: 2000      # LLM响应最大等待时间
@@ -452,6 +452,92 @@ python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
 python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 ```
 
+## LLM 查询改写部署
+
+LLM 查询改写器通过 Ollama 调用本地小模型，实现查询补全、子查询拆解和语义变体生成。此项**可选**——未配置或不可用时，自动降级到内置规则引擎。
+
+### 1. 拉取模型
+
+```bash
+# 推荐：qwen2.5:3b（~1.9 GB）
+ollama pull qwen2.5:3b
+
+# 其他可选：llama3.2:3b、gemma3:4b 等
+ollama pull llama3.2:3b
+```
+
+验证模型已安装：
+
+```bash
+ollama list | grep qwen2.5
+```
+
+### 2. 配置
+
+在 `config.yaml` 中添加：
+
+```yaml
+# ---- 查询改写 (LLM) ----
+query_rewrite_enabled: true
+query_rewrite_max_variants: 3
+query_rewrite_llm_model: "qwen2.5:3b"    # 设为 null 禁用
+query_rewrite_llm_timeout_ms: 5000        # CPU 环境建议增大
+```
+
+- `query_rewrite_llm_model` — Ollama 模型名称。设为 `null` 或不填仅用规则引擎。
+- `query_rewrite_llm_timeout_ms` — LLM 响应超时。GPU 用户可降至 2000ms；纯 CPU 建议 5000–10000ms。
+
+### 3. 测试
+
+```bash
+# 单条查询测试
+python -c "
+from rag.config import load_config
+from rag.retriever.query_rewriter import LLMQueryRewriter
+c = load_config()
+rw = LLMQueryRewriter(c.ollama_host, 'qwen2.5:3b', 5000)
+result = rw.rewrite('how to init renderer')
+if result:
+    print('completed:', result.completed)
+    print('variants:', result.variants)
+    print('sub_queries:', result.sub_queries)
+"
+```
+
+### 4. 评估效果
+
+```bash
+# 对比三种模式
+python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
+```
+
+**性能说明：** LLM 改写每次查询增加约 2.5s（CPU）。GPU 环境下可降至 300–500ms。不改写模式始终最快且当前指标最优——建议对需要更高召回率的复杂自然语言查询选择性使用 LLM 改写。
+
+### 工作流程
+
+```
+用户查询："how to init renderer"
+     │
+     ▼
+LLMQueryRewriter.rewrite()
+     │
+     ▼
+Ollama /api/chat → qwen2.5:3b
+     │
+     ▼
+{
+  "completed": "How do I initialize the renderer?",
+  "sub_queries": ["What are the steps to initialize a renderer?"],
+  "variants": ["How do I start up the renderer?"]
+}
+     │
+     ├─ completed → 向量搜索用（单一最佳查询）
+     ├─ sub_queries → BM25 扩展（独立搜索，RRF 合并）
+     └─ variants → BM25 扩展（同义词覆盖）
+```
+
+任何失败（模型未找到、超时、JSON 解析失败）透明降级到规则 `expand()` 引擎，搜索流程不会中断。
+
 ## 重要提示
 
 ### 性能
@@ -478,7 +564,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 - **代码加权触发词**——包含 "how to"、"example"、"create"、"implement" 等词的查询会对含代码的 chunk 增加 +20% 权重。
 - **引用扩展**——Top 结果自动拉取引用的符号（1 跳，最多 +5）。当文档源包含 `see_also` 章节时效果最佳。
 - **BM25 权重**——面向 API 搜索时，symbol_name（×10）和 signature（×5）的权重高于 remarks（×1）和 example（×0.5）。对于以叙述为主的文档，可在 config.yaml 中调整。
-- **查询改写**——自然语言查询可被改写以提升召回率。两种模式：基于规则（默认，始终可用）和基于LLM（可选，需在Ollama中拉取 qwen2.5:3b）。设置 `query_rewrite_llm_model` 启用LLM模式；失败时自动回退到规则引擎。LLM新增：查询补全、子查询拆解、语义变体生成。
+- **查询改写**——自然语言查询可被改写以提升召回率。两种模式：基于规则（默认）和基于LLM（可选）。详见 [LLM 查询改写部署](#llm-查询改写部署)。
 - **评估检索质量**——使用 `python -m rag eval` 量化检索效果。需要在 `tests/eval/queries.jsonl` 中提供标注查询。在调优流程中可追踪 Recall@K、MRR、NDCG@K 等指标变化。
 
 ### 故障排除

@@ -259,7 +259,7 @@ ref_expansion_max: 5
 context_max_tokens: 6000
 
 # ---- Query Rewrite ----
-query_rewrite_enabled: true
+query_rewrite_enabled: false            # off by default — no rewrite is best for most queries
 query_rewrite_max_variants: 3
 query_rewrite_llm_model: null           # optional local model for LLM rewrite
 query_rewrite_llm_timeout_ms: 2000      # max wait for LLM response
@@ -468,6 +468,92 @@ python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
 python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 ```
 
+## LLM Query Rewrite Setup
+
+The LLM-based query rewriter uses a local small model via Ollama to complete partial queries, decompose complex questions, and generate semantic variants. This is **optional** — when disabled or unavailable, the built-in rule-based engine is used instead.
+
+### 1. Pull the Model
+
+```bash
+# Recommended: qwen2.5:3b (~1.9 GB)
+ollama pull qwen2.5:3b
+
+# Alternatives: llama3.2:3b, gemma3:4b, or any Ollama chat model
+ollama pull llama3.2:3b
+```
+
+Verify the model is available:
+
+```bash
+ollama list | grep qwen2.5
+```
+
+### 2. Configure
+
+Add to `config.yaml`:
+
+```yaml
+# ---- Query Rewrite (LLM) ----
+query_rewrite_enabled: true
+query_rewrite_max_variants: 3
+query_rewrite_llm_model: "qwen2.5:3b"    # set to null to disable
+query_rewrite_llm_timeout_ms: 5000        # increase if using CPU-only
+```
+
+- `query_rewrite_llm_model` — Ollama model name. Set to `null` or omit to use rule-based only.
+- `query_rewrite_llm_timeout_ms` — Max wait for the LLM response. GPU users can lower to 2000ms; CPU users should set 5000–10000ms.
+
+### 3. Test
+
+```bash
+# Single query test
+python -c "
+from rag.config import load_config
+from rag.retriever.query_rewriter import LLMQueryRewriter
+c = load_config()
+rw = LLMQueryRewriter(c.ollama_host, 'qwen2.5:3b', 5000)
+result = rw.rewrite('how to init renderer')
+if result:
+    print('completed:', result.completed)
+    print('variants:', result.variants)
+    print('sub_queries:', result.sub_queries)
+"
+```
+
+### 4. Evaluate Impact
+
+```bash
+# Compare all three modes
+python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
+```
+
+**Performance note:** LLM rewrite adds ~2.5s per query on CPU. On GPU (Ollama with CUDA), this drops to ~300–500ms. The no-rewrite path is always fastest and currently achieves the best metrics for this dataset — use LLM rewrite selectively for hard natural-language queries where recall matters more than latency.
+
+### How It Works
+
+```
+User query: "how to init renderer"
+     │
+     ▼
+LLMQueryRewriter.rewrite()
+     │
+     ▼
+Ollama /api/chat → qwen2.5:3b
+     │
+     ▼
+{
+  "completed": "How do I initialize the renderer?",
+  "sub_queries": ["What are the steps to initialize a renderer?"],
+  "variants": ["How do I start up the renderer?"]
+}
+     │
+     ├─ completed → used for vector search (single best query)
+     ├─ sub_queries → BM25 expansion (independent searches, merged in RRF)
+     └─ variants → BM25 expansion (synonym coverage)
+```
+
+Any failure (model not found, timeout, invalid JSON) transparently falls back to the rule-based `expand()` engine. The search pipeline never breaks.
+
 ## Important Tips
 
 ### Performance
@@ -494,7 +580,7 @@ python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 - **Code boost triggers** — queries containing "how to", "example", "create", "implement", etc. get a +20% boost on code-containing chunks.
 - **Reference expansion** — top results automatically pull in referenced symbols (1-hop, +5 max). This is most effective when your source docs have `see_also` sections.
 - **BM25 weights** — symbol_name (×10) and signature (×5) are weighted higher than remarks (×1) and examples (×0.5) for API-focused searches. Adjust in config.yaml for narrative-heavy docs.
-- **Query rewrite** — natural language queries can be rewritten for better recall. Two modes: rule-based (default, always available) and LLM-based (optional, requires `qwen2.5:3b` or similar pulled in Ollama). Set `query_rewrite_llm_model` to enable LLM mode; it falls back to rules on failure. LLM mode adds completion (fixing partial queries), decomposition (breaking complex questions), and semantic variant generation on top of the rule engine.
+- **Query rewrite** — natural language queries can be rewritten for better recall. Two modes: rule-based (default, always available) and LLM-based (optional). See [LLM Query Rewrite Setup](#llm-query-rewrite-setup) for deployment instructions.
 - **Evaluate quality** — measure retrieval quality with `python -m rag eval`. Requires annotated queries in `tests/eval/queries.jsonl`. Track Recall@K, MRR, and NDCG@K changes as you tune the pipeline.
 
 ### Troubleshooting

@@ -41,7 +41,7 @@ class Config:
     context_max_tokens: int = 6000
     cache_max_entries: int = 128
     index_batch_size: int = 500
-    query_rewrite_enabled: bool = True
+    query_rewrite_enabled: bool = False
     query_rewrite_max_variants: int = 3
     query_rewrite_llm_model: str | None = None  # e.g. "qwen2.5:3b". None = rule-only
     query_rewrite_llm_timeout_ms: int = 2000

@@ -59,7 +59,7 @@ def handle_search_docs(
     module: str | None = None,
 ) -> list[dict]:
     """Full hybrid search pipeline with query rewrite enabled."""
-    results = _retriever.search(query, top_k, source_label, module, enable_rewrite=True)
+    results = _retriever.search(query, top_k, source_label, module)
     return [_result_to_dict(r) for r in results]
 
 
