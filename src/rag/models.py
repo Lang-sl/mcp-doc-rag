@@ -89,3 +89,44 @@ class IndexStats:
     total_chunks: int
     total_sources: int
     per_source: dict[str, int]  # source_label -> chunk count
+
+
+@dataclass
+class StageTrace:
+    """One stage of the retrieval pipeline."""
+    stage: str           # "bm25" | "vector" | "rrf" | "reranker" | "final"
+    results: list[str]   # ordered chunk_ids at this stage
+
+
+@dataclass
+class PipelineTrace:
+    """Per-query trace of all retrieval stages, for eval analysis."""
+    query: str
+    traces: list[StageTrace] = field(default_factory=list)
+    rewrite_variants: list[str] = field(default_factory=list)
+
+    def recall_at(self, stage: str, relevant: set[str], k: int) -> float:
+        """Compute Recall@K against *relevant* for a given stage."""
+        for t in self.traces:
+            if t.stage == stage:
+                if not relevant:
+                    return 1.0
+                top_k = set(t.results[:k])
+                return len(top_k & relevant) / len(relevant)
+        return 0.0
+
+
+@dataclass
+class BadCase:
+    """One bad case for analysis and feedback."""
+    query: str
+    category: str  # "knowledge_gap" | "ranking_failure" | "rewrite_regression" | "reranker_regression"
+    detail: str    # one-line explanation of what went wrong
+
+
+@dataclass
+class RewriteResult:
+    """Output of LLM query rewriting."""
+    completed: str          # polished complete question
+    sub_queries: list[str]  # 0-3 decomposed single-step queries
+    variants: list[str]     # 0-3 semantic variants

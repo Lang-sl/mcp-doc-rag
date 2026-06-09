@@ -43,6 +43,8 @@ class Config:
     index_batch_size: int = 500
     query_rewrite_enabled: bool = True
     query_rewrite_max_variants: int = 3
+    query_rewrite_llm_model: str | None = None  # e.g. "qwen2.5:3b". None = rule-only
+    query_rewrite_llm_timeout_ms: int = 2000
     rrf_bm25_weight: float = 2.0
     embedding_cache_dir: str = "./output/chroma_db/embedding_cache"
     bm25_cache_dir: str = "./output/chroma_db/bm25_cache"
@@ -156,6 +158,8 @@ def load_config(path: Optional[str] = None) -> Config:
         index_batch_size=_get("index_batch_size", defaults.index_batch_size),
         query_rewrite_enabled=_get("query_rewrite_enabled", defaults.query_rewrite_enabled),
         query_rewrite_max_variants=_get("query_rewrite_max_variants", defaults.query_rewrite_max_variants),
+        query_rewrite_llm_model=_get("query_rewrite_llm_model", defaults.query_rewrite_llm_model),
+        query_rewrite_llm_timeout_ms=_get("query_rewrite_llm_timeout_ms", defaults.query_rewrite_llm_timeout_ms),
         rrf_bm25_weight=_get("rrf_bm25_weight", defaults.rrf_bm25_weight),
         embedding_cache_dir=_resolve_path(_get("embedding_cache_dir", defaults.embedding_cache_dir), config_dir),
         bm25_cache_dir=_resolve_path(_get("bm25_cache_dir", defaults.bm25_cache_dir), config_dir),

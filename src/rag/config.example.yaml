@@ -66,11 +66,16 @@ bm25_cache_dir: ./chroma_db/bm25_cache
 reranker_score_gap_threshold: 0.15   # 0 = never skip reranker
 reranker_max_candidates: 30           # max candidates fed to reranker (API prioritized)
 
-# ---- Query Rewrite ----
-# Expand natural language queries with domain synonyms for better BM25 recall.
+# ---- Query Rewrite (LLM) ----
+# Expand natural language queries before BM25 search.
 # Disabled for symbol/API lookups (queries containing "::").
+# Set query_rewrite_llm_model to pull a local model (e.g. "qwen2.5:3b") for
+# intelligent completion/decomposition/variant generation via Ollama chat API.
+# When null (or model not available), falls back to the built-in rule engine.
 query_rewrite_enabled: true
 query_rewrite_max_variants: 3
+query_rewrite_llm_model: null           # e.g. "qwen2.5:3b"
+query_rewrite_llm_timeout_ms: 2000      # max wait for Ollama response
 
 # ---- Index ----
 index_batch_size: 500
