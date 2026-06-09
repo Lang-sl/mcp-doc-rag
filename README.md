@@ -412,24 +412,60 @@ Key takeaways:
 
 Measured on a production-scale C++ SDK documentation index with **108 annotated queries** (35 API symbol lookups + 73 natural language), covering 3 document sources across 7,834 indexed chunks. RRF weighting (`rrf_bm25_weight: 2.0`) significantly improves early-position recall by prioritizing exact keyword matches.
 
-| Metric | Without Rewrite | With Query Rewrite |
-|--------|----------------|--------------------|
-| Recall@1 | 0.362 | 0.360 |
-| Recall@3 | 0.513 | 0.486 |
-| Recall@5 | 0.593 | 0.548 |
-| Recall@10 | 0.722 | 0.678 |
-| MRR | 0.644 | 0.614 |
-| NDCG@5 | 0.676 | 0.635 |
-| NDCG@10 | 0.695 | 0.659 |
-| p50 latency | 279ms | 300ms |
-| p95 latency | 469ms | 548ms |
-| Zero-recall | 13/108 (12%) | 19/108 (18%) |
+| Metric | No Rewrite | Rule Rewrite | LLM Rewrite (qwen2.5:3b) |
+|--------|-----------|-------------|--------------------------|
+| Recall@1 | 0.362 | 0.360 | 0.352 |
+| Recall@3 | 0.513 | 0.486 | 0.492 |
+| Recall@5 | 0.593 | 0.548 | 0.564 |
+| Recall@10 | 0.722 | 0.678 | 0.659 |
+| MRR | 0.644 | 0.614 | 0.616 |
+| NDCG@5 | 0.676 | 0.635 | 0.642 |
+| NDCG@10 | 0.695 | 0.659 | 0.662 |
+| p50 latency | 288ms | 324ms | 2,874ms |
+| p95 latency | 455ms | 646ms | 3,699ms |
+| Zero-recall | 13/108 (12%) | 19/108 (18%) | 18/108 (17%) |
 
-Without rewrite, BM25-weighted RRF achieves stronger Recall@10 (0.722) with fewer zero-recall queries (13). API symbol lookups (35 queries) maintain near-perfect Recall@1. The larger, more diverse query set reveals query-rewrite regressions on some natural-language queries where keyword dilution can hurt precision. Run your own baseline:
+**Key findings:**
+- **No rewrite is best** for this dataset — BM25-weighted RRF alone achieves Recall@10 0.722 with the fewest zero-recall queries (13)
+- **LLM rewrite** (`qwen2.5:3b`) slightly outperforms rule-based rewrite on Recall@5/NDCG but adds ~2.5s per query. Best suited for offline/hard queries where latency isn't critical
+- API symbol lookups (35 queries) maintain near-perfect Recall@1 regardless of rewrite mode
+- Per-stage evals reveal that rewrite dilution hurts BM25 recall in both modes; focus future work on targeted expansion that preserves keyword precision
+
+#### Per-Stage Breakdown (No Rewrite)
+
+`python -m rag eval` now shows where each pipeline stage contributes:
+
+| Stage | Recall@5 | Recall@10 | MRR |
+|-------|----------|-----------|-----|
+| BM25 | 0.535 | 0.700 | 0.641 |
+| Vector | 0.433 | 0.534 | 0.456 |
+| RRF | 0.829 | 0.896 | 0.863 |
+| Reranker | 0.585 | 0.719 | 0.649 |
+| **Final** | **0.593** | **0.722** | **0.644** |
+
+Key insight: RRF fusion combines the best of both channels (0.896 Recall@10), the reranker trims noise at the cost of some recall, and final code boost + reference expansion recover slightly.
+
+#### Bad Case Distribution (No Rewrite)
+
+Zero-recall queries are now auto-classified:
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| knowledge_gap | 9 | Relevant docs not in any index |
+| ranking_failure | 4 | Docs found but ranked out of top-10 |
+| reranker_regression | 4 | Reranker demoted correct results |
+
+Run your own baseline:
 
 ```bash
-python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
-python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
+# Full eval with per-stage metrics and bad case analysis
+python -m rag eval --queries tests/eval/queries.jsonl
+
+# Compare all rewrite modes
+python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
+
+# Bad case analysis only
+python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 ```
 
 ## Important Tips

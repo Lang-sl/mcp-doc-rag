@@ -406,24 +406,50 @@ Query
 
 基于生产级 C++ SDK 文档索引、**108 条标注查询**（35 条 API 符号查找 + 73 条自然语言）、覆盖 3 个文档源、7,834 个索引分块的实测数据。RRF 加权（`rrf_bm25_weight: 2.0`）通过优先匹配精确关键词显著提升了早期排位召回率。
 
-| 指标 | 未启用改写 | 启用查询改写 |
-|------|----------|-------------|
-| Recall@1 | 0.362 | 0.360 |
-| Recall@3 | 0.513 | 0.486 |
-| Recall@5 | 0.593 | 0.548 |
-| Recall@10 | 0.722 | 0.678 |
-| MRR | 0.644 | 0.614 |
-| NDCG@5 | 0.676 | 0.635 |
-| NDCG@10 | 0.695 | 0.659 |
-| p50 延迟 | 279ms | 300ms |
-| p95 延迟 | 469ms | 548ms |
-| 零召回查询 | 13/108 (12%) | 19/108 (18%) |
+| 指标 | 不改写 | 规则改写 | LLM 改写 (qwen2.5:3b) |
+|------|-------|---------|----------------------|
+| Recall@1 | 0.362 | 0.360 | 0.352 |
+| Recall@3 | 0.513 | 0.486 | 0.492 |
+| Recall@5 | 0.593 | 0.548 | 0.564 |
+| Recall@10 | 0.722 | 0.678 | 0.659 |
+| MRR | 0.644 | 0.614 | 0.616 |
+| NDCG@5 | 0.676 | 0.635 | 0.642 |
+| NDCG@10 | 0.695 | 0.659 | 0.662 |
+| p50 延迟 | 288ms | 324ms | 2,874ms |
+| p95 延迟 | 455ms | 646ms | 3,699ms |
+| 零召回 | 13/108 (12%) | 19/108 (18%) | 18/108 (17%) |
 
-未启用改写时，BM25 加权 RRF 实现更强的 Recall@10（0.722），零召回查询更少（13 条）。API 符号查找（35 条）保持接近完美的 Recall@1。更大、更多样化的查询集揭示了某些自然语言查询上查询改写可能导致关键词稀释，降低精度。运行你自己的基线：
+**关键发现：** 不改写效果最好（Recall@10 0.722）；LLM 改写略优于规则改写但增加 ~2.5s 延迟；API 符号查询不受改写影响。
+
+#### 分阶段分析（不改写）
+
+| 阶段 | Recall@5 | Recall@10 | MRR |
+|------|----------|-----------|-----|
+| BM25 | 0.535 | 0.700 | 0.641 |
+| Vector | 0.433 | 0.534 | 0.456 |
+| RRF | 0.829 | 0.896 | 0.863 |
+| Reranker | 0.585 | 0.719 | 0.649 |
+| **Final** | **0.593** | **0.722** | **0.644** |
+
+RRF 融合两路后 Recall@10 达 0.896，reranker 降噪后略微损失。
+
+#### Bad Case 分布
+
+| 分类 | 数量 | 说明 |
+|------|------|------|
+| knowledge_gap | 9 | 索引中无相关文档 |
+| ranking_failure | 4 | 找到但被排出 top-10 |
+| reranker_regression | 4 | Reranker 降低了正确结果的排名 |
 
 ```bash
-python -m rag eval --queries tests/eval/queries.jsonl > tests/eval/baseline.txt
-python -m rag eval --queries tests/eval/queries.jsonl --enable-rewrite
+# 完整评估（含分阶段指标和 bad case 分析）
+python -m rag eval --queries tests/eval/queries.jsonl
+
+# 对比所有改写模式
+python -m rag eval --queries tests/eval/queries.jsonl --compare-rewrite
+
+# 仅 bad case 分析
+python -m rag eval --queries tests/eval/queries.jsonl --bad-cases-only
 ```
 
 ## 重要提示
