@@ -38,6 +38,9 @@ tests/eval/baseline.txt
 # Ollama models (large, downloaded separately)
 ollama_models/
 
+# Brainstorming companion artifacts
+.superpowers/
+
 # OS
 Thumbs.db
 .DS_Store
