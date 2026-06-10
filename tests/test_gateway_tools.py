@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 import sys
 import types
@@ -9,6 +11,8 @@ from pathlib import Path
 import yaml
 
 from rag.config import Config
+from rag.gateway.codegraph_client import CodeGraphClient
+from rag.gateway.config import CodeGraphConfig
 from rag.gateway.doc_backend import DocRagBackend
 from rag.symbol_index import SymbolIndex
 
@@ -312,3 +316,148 @@ def test_doc_backend_remove_source_preserves_symbols_when_config_remove_fails(tm
     assert backend.symbol_index.lookup("Sdk::Render")["source_label"] == "sdk"
     assert backend.retriever.invalidated is False
     assert client.touched is False
+
+
+class FakeProcess:
+    def __init__(self, responses: list[dict]):
+        self.stdin = io.StringIO()
+        self.stdout = io.StringIO("\n".join(json.dumps(item) for item in responses) + "\n")
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = 1
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self.returncode = 1
+
+
+def test_codegraph_client_lists_tools_with_fake_process():
+    responses = [
+        {"jsonrpc": "2.0", "method": "log", "params": {"message": "starting"}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+
+    assert client.start() is True
+    assert client.available is True
+    assert client.tool_names == ["codegraph_search"]
+    assert client.tools[0]["name"] == "codegraph_search"
+
+    written = [json.loads(line) for line in process.stdin.getvalue().splitlines()]
+    assert [item["method"] for item in written] == ["initialize", "initialized", "tools/list"]
+
+
+def test_codegraph_client_ignores_unrelated_response_ids():
+    responses = [
+        {"jsonrpc": "2.0", "id": 99, "result": {"ignored": True}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+
+    assert client.start() is True
+    assert client.tool_names == ["codegraph_search"]
+
+
+def test_codegraph_client_call_tool_returns_result_content():
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+        {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "result"}]}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+    client.start()
+
+    result = client.call_tool("codegraph_search", {"query": "mesh"})
+
+    assert result == {"content": [{"type": "text", "text": "result"}]}
+
+
+def test_codegraph_client_call_tool_returns_unavailable_when_process_exited():
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+    client.start()
+    process.returncode = 1
+
+    result = client.call_tool("codegraph_search", {"query": "mesh"})
+
+    assert result == {"error": "CodeGraph unavailable"}
+    assert client.available is False
+
+
+def test_codegraph_client_tool_error_does_not_disable_client():
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+        {"jsonrpc": "2.0", "id": 3, "error": {"code": -32602, "message": "bad arguments"}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+    client.start()
+
+    result = client.call_tool("codegraph_search", {"bad": True})
+
+    assert result == {"error": "bad arguments"}
+    assert client.available is True
+
+
+class HangingStdout:
+    def readline(self):
+        import time
+        time.sleep(0.2)
+        return ""
+
+
+class HangingProcess:
+    def __init__(self):
+        self.stdin = io.StringIO()
+        self.stdout = HangingStdout()
+        self.returncode = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = 1
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self.returncode = 1
+
+
+def test_codegraph_client_start_times_out_and_degrades():
+    process = HangingProcess()
+    client = CodeGraphClient(
+        CodeGraphConfig(),
+        process_factory=lambda command, cwd: process,
+        response_timeout_seconds=0.01,
+    )
+
+    assert client.start() is False
+    assert client.available is False
+    assert client.tool_names == []
+    assert process.terminated is True
