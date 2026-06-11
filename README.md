@@ -55,7 +55,7 @@ Set model storage path (optional, defaults to Ollama's default location):
 
 ```bash
 # Windows
-setx OLLAMA_MODELS "C:\path\to\models"
+setx OLLAMA_MODELS "<path-to-models>"
 
 # macOS / Linux
 export OLLAMA_MODELS=/path/to/models
@@ -171,7 +171,7 @@ python -m rag context "5-axis simulation setup"
 ### 4. Manage Sources
 
 ```bash
-python -m rag source add my_new_docs D:/path/to/docs
+python -m rag source add my_new_docs <path-to-docs>
 python -m rag source list
 python -m rag source remove my_new_docs
 ```
@@ -302,9 +302,9 @@ Create `.mcp.json` at your **project root** (the directory where you run `claude
       "type": "stdio",
       "command": "python",
       "args": ["-m", "rag.server"],
-      "cwd": "D:/rag/mcp-doc-rag",
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
       "env": {
-        "RAG_CONFIG_PATH": "D:/rag/mcp-doc-rag/config.yaml"
+        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
       }
     }
   }
@@ -312,6 +312,37 @@ Create `.mcp.json` at your **project root** (the directory where you run `claude
 ```
 
 Replace paths with the absolute path to your cloned repository. Use forward slashes even on Windows.
+
+To use the CodeGraph gateway server, point the MCP entry at the gateway CLI:
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag-gateway": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag", "gateway"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
+      }
+    }
+  }
+}
+```
+
+Minimal `gateway.yaml`:
+
+```yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<absolute-path-to-code-project>"
+```
+
+If `codegraph` is omitted or cannot start, `smart_search` degrades to doc-only search.
 
 **Alternative scopes** (choose based on your needs):
 
@@ -625,8 +656,8 @@ pytest tests/test_10_query_rewriter.py -v
 # Stage 11: full end-to-end (slow — needs everything)
 pytest tests/test_11_e2e.py -v -m slow
 
-# Stage 14-15: gateway config, backend, CodeGraph client, and smart search
-pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py -v
+# Stage 14-17: gateway config, backend, server, and CLI
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py tests/test_16_gateway_server.py tests/test_17_gateway_cli.py -v
 
 # Run everything except slow E2E
 pytest tests/ -v -k "not slow"
@@ -651,6 +682,8 @@ pytest tests/ -v -k "not slow"
 | 13 | `test_13_eval_trace.py` | PipelineTrace recall, bad case classification | None |
 | 14 | `test_14_gateway_config.py` | Gateway config loading and optional CodeGraph defaults | None |
 | 15 | `test_15_gateway_tools.py` | Gateway doc backend, CodeGraph client fakes, smart search routing | None |
+| 16 | `test_16_gateway_server.py` | Gateway MCP stdio request handling and tool list assembly | None |
+| 17 | `test_17_gateway_cli.py` | `rag gateway` CLI dispatch and existing CLI path preservation | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 
@@ -697,6 +730,8 @@ mcp-doc-rag/
 │   ├── test_13_eval_trace.py     # Stage 13: Eval trace unit tests
 │   ├── test_14_gateway_config.py # Stage 14: Gateway config
 │   ├── test_15_gateway_tools.py  # Stage 15: Gateway tools
+│   ├── test_16_gateway_server.py # Stage 16: Gateway MCP server
+│   ├── test_17_gateway_cli.py    # Stage 17: Gateway CLI entrypoint
 │   └── eval/
 │       ├── test_metrics.py      # Metric function unit tests
 │       ├── queries.jsonl        # Annotated evaluation dataset
@@ -715,6 +750,7 @@ mcp-doc-rag/
     │   ├── config.py            # Gateway YAML config loader
     │   ├── doc_backend.py       # In-process doc-rag backend wrapper
     │   ├── codegraph_client.py  # Optional CodeGraph MCP subprocess client
+    │   ├── server.py            # Gateway MCP server and JSON-RPC dispatch
     │   └── tools.py             # Smart search and passthrough tool routing
     ├── indexer/
     │   ├── crawler.py           # File walker with SHA1 incremental check

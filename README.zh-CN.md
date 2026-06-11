@@ -55,7 +55,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 
 ```bash
 # Windows
-setx OLLAMA_MODELS "C:\path\to\models"
+setx OLLAMA_MODELS "<path-to-models>"
 
 # macOS / Linux
 export OLLAMA_MODELS=/path/to/models
@@ -171,7 +171,7 @@ python -m rag context "5-axis simulation setup"
 ### 4. 管理文档源
 
 ```bash
-python -m rag source add my_new_docs D:/path/to/docs
+python -m rag source add my_new_docs <path-to-docs>
 python -m rag source list
 python -m rag source remove my_new_docs
 ```
@@ -296,9 +296,9 @@ mcp-doc-rag 是一个 MCP 服务器——AI 编程助手可以直接调用其工
       "type": "stdio",
       "command": "python",
       "args": ["-m", "rag.server"],
-      "cwd": "D:/rag/mcp-doc-rag",
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
       "env": {
-        "RAG_CONFIG_PATH": "D:/rag/mcp-doc-rag/config.yaml"
+        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
       }
     }
   }
@@ -306,6 +306,37 @@ mcp-doc-rag 是一个 MCP 服务器——AI 编程助手可以直接调用其工
 ```
 
 将路径替换为你的仓库绝对路径。即使在 Windows 上也请使用正斜杠。
+
+如需使用 CodeGraph gateway server，将 MCP 入口指向 gateway CLI：
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag-gateway": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag", "gateway"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
+      }
+    }
+  }
+}
+```
+
+最小 `gateway.yaml`：
+
+```yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<absolute-path-to-code-project>"
+```
+
+如果省略 `codegraph` 或启动失败，`smart_search` 会降级为仅文档搜索。
 
 **其他作用域**（根据需求选择）：
 
@@ -609,8 +640,8 @@ pytest tests/test_10_query_rewriter.py -v
 # 阶段 11：完整端到端（较慢——需要所有环境）
 pytest tests/test_11_e2e.py -v -m slow
 
-# 阶段 14-15：gateway 配置、后端、CodeGraph 客户端与 smart search
-pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py -v
+# 阶段 14-17：gateway 配置、后端、server 与 CLI
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py tests/test_16_gateway_server.py tests/test_17_gateway_cli.py -v
 
 # 运行除慢速端到端测试外的全部测试
 pytest tests/ -v -k "not slow"
@@ -635,6 +666,8 @@ pytest tests/ -v -k "not slow"
 | 13 | `test_13_eval_trace.py` | PipelineTrace 召回率、Bad Case 分类 | 无 |
 | 14 | `test_14_gateway_config.py` | Gateway 配置加载与可选 CodeGraph 默认值 | 无 |
 | 15 | `test_15_gateway_tools.py` | Gateway 文档后端、CodeGraph 客户端 fake、smart search 路由 | 无 |
+| 16 | `test_16_gateway_server.py` | Gateway MCP stdio 请求处理与工具列表组装 | 无 |
+| 17 | `test_17_gateway_cli.py` | `rag gateway` CLI 分发与既有 CLI 路径保持 | 无 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
@@ -681,6 +714,8 @@ mcp-doc-rag/
 │   ├── test_13_eval_trace.py     # 阶段 13：评估追踪单元测试
 │   ├── test_14_gateway_config.py # 阶段 14：Gateway 配置
 │   ├── test_15_gateway_tools.py  # 阶段 15：Gateway 工具
+│   ├── test_16_gateway_server.py # 阶段 16：Gateway MCP server
+│   ├── test_17_gateway_cli.py    # 阶段 17：Gateway CLI 入口
 │   └── eval/
 │       ├── test_metrics.py      # 评估指标单元测试
 │       ├── queries.jsonl        # 标注评估数据集
@@ -699,6 +734,7 @@ mcp-doc-rag/
     │   ├── config.py            # Gateway YAML 配置加载器
     │   ├── doc_backend.py       # 进程内 doc-rag 后端封装
     │   ├── codegraph_client.py  # 可选 CodeGraph MCP 子进程客户端
+    │   ├── server.py            # Gateway MCP server 与 JSON-RPC 分发
     │   └── tools.py             # Smart search 与工具路由
     ├── indexer/
     │   ├── crawler.py           # 文件遍历器带 SHA1 增量检查
