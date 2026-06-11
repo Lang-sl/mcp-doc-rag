@@ -45,6 +45,7 @@
 - `tree-sitter` and `tree-sitter-cpp` (optional, for C++ header AST parsing). Install with `pip install ".[header-ast]"`.
 
 ### Changed
+- CodeGraph gateway client now passes the project `rootUri` during MCP initialization and resolves `npx` to `npx.cmd` on Windows, allowing setup wizard generated gateway configs to load CodeGraph tools correctly.
 - `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
 - `handle_search_docs` in MCP server enables query rewrite by default
 - `Config` dataclass extended with `query_rewrite_enabled` and `query_rewrite_max_variants` fields

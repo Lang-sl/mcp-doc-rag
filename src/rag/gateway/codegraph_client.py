@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import subprocess
 import threading
+from pathlib import Path
 from typing import Callable, TextIO
 
 from rag.gateway.config import CodeGraphConfig
@@ -17,6 +19,8 @@ class CodeGraphRequestError(Exception):
 
 
 def _default_process_factory(command: list[str], cwd: str) -> subprocess.Popen:
+    if os.name == "nt" and command and command[0].lower() == "npx":
+        command = ["npx.cmd", *command[1:]]
     return subprocess.Popen(
         command,
         cwd=cwd,
@@ -60,9 +64,10 @@ class CodeGraphClient:
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {"name": "doc-rag-gateway", "version": "0.1.0"},
+                    "rootUri": Path(self.config.cwd).resolve().as_uri(),
                 },
             )
-            self._notify("initialized", {})
+            self._notify("notifications/initialized", {})
             tools_result = self._request("tools/list", {})
         except Exception:
             self._mark_unavailable()

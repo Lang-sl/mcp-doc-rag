@@ -356,7 +356,8 @@ def test_codegraph_client_lists_tools_with_fake_process():
     assert client.tools[0]["name"] == "codegraph_search"
 
     written = [json.loads(line) for line in process.stdin.getvalue().splitlines()]
-    assert [item["method"] for item in written] == ["initialize", "initialized", "tools/list"]
+    assert [item["method"] for item in written] == ["initialize", "notifications/initialized", "tools/list"]
+    assert written[0]["params"]["rootUri"].startswith("file:")
 
 
 def test_codegraph_client_ignores_unrelated_response_ids():
