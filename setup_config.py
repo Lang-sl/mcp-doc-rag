@@ -8,8 +8,9 @@ Run this script once after cloning the repository:
 It will:
   1. Create config.yaml from the template
   2. Help you configure document sources
-  3. Verify Ollama is available (optional)
-  4. Print next steps
+  3. Optionally create gateway.yaml for CodeGraph gateway search
+  4. Verify Ollama is available (optional)
+  5. Print next steps
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ import yaml
 
 TEMPLATE = Path(__file__).resolve().parent / "src" / "rag" / "config.example.yaml"
 TARGET = Path(__file__).resolve().parent / "config.yaml"
+GATEWAY_TEMPLATE = Path(__file__).resolve().parent / "src" / "rag" / "gateway.example.yaml"
+GATEWAY_TARGET = Path(__file__).resolve().parent / "gateway.yaml"
 
 
 def header(text: str) -> None:
@@ -62,6 +65,60 @@ def check_ollama() -> bool:
     except Exception:
         print("  [WARN] Ollama is not running. Start it with: ollama serve")
         return False
+
+
+def configure_gateway() -> bool:
+    """Optionally create gateway.yaml for MCP gateway mode."""
+    header("CodeGraph Gateway")
+    print("\n  The gateway can combine doc-rag search with optional CodeGraph code search.")
+    print("  It requires Node.js with npm/npx on PATH when CodeGraph is enabled.")
+    print("  Leave this disabled if you only want the normal doc-rag server.\n")
+
+    create = ask("Create gateway.yaml for gateway mode? (y/n)", "n")
+    if create.lower() != "y":
+        print("  Skipping gateway.yaml")
+        return False
+
+    if GATEWAY_TARGET.exists():
+        print(f"\n  gateway.yaml already exists at: {GATEWAY_TARGET}")
+        overwrite = ask("Overwrite? (y/n)", "n")
+        if overwrite.lower() != "y":
+            print("  Keeping existing gateway.yaml")
+            return True
+
+    shutil.copy(GATEWAY_TEMPLATE, GATEWAY_TARGET)
+
+    with open(GATEWAY_TARGET, "r", encoding="utf-8") as fh:
+        gateway_config = yaml.safe_load(fh)
+    if not isinstance(gateway_config, dict):
+        gateway_config = {}
+
+    gateway_config["doc_rag"] = {"config_path": str(TARGET.resolve())}
+
+    codegraph = gateway_config.get("codegraph")
+    if not isinstance(codegraph, dict):
+        codegraph = {}
+
+    code_project = ask("Code project path for CodeGraph (leave blank to fill later)")
+    if code_project:
+        if not os.path.isdir(code_project):
+            print(f"  [WARN] Directory not found: {code_project}")
+            still_add = ask("  Add anyway? (y/n)", "n")
+            if still_add.lower() == "y":
+                codegraph["cwd"] = code_project
+        else:
+            codegraph["cwd"] = code_project
+
+    codegraph.setdefault("command", "npx")
+    codegraph.setdefault("args", ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"])
+    codegraph.setdefault("cwd", "<absolute-path-to-code-project>")
+    gateway_config["codegraph"] = codegraph
+
+    with open(GATEWAY_TARGET, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(gateway_config, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    print(f"  [OK] Created: {GATEWAY_TARGET}")
+    return True
 
 
 def main() -> int:
@@ -129,7 +186,10 @@ def main() -> int:
     with open(TARGET, "w", encoding="utf-8") as fh:
         yaml.safe_dump(config, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-    # --- Step 5: Ollama check ---
+    # --- Step 5: Optional gateway config ---
+    gateway_configured = configure_gateway()
+
+    # --- Step 6: Ollama check ---
     header("Ollama Check")
     ollama_ok = check_ollama()
 
@@ -138,27 +198,36 @@ def main() -> int:
     print()
     print("  Next steps:")
     print()
+    step = 1
     if not sources:
-        print("  1. Add document sources to config.yaml:")
+        print(f"  {step}. Add document sources to config.yaml:")
         print("     Edit the 'doc_sources' section in config.yaml")
         print()
-        print("  2. Index your documents:")
-        print("     python -m rag reindex")
-    else:
-        print("  1. Index your documents:")
-        print("     python -m rag reindex")
+        step += 1
+    print(f"  {step}. Index your documents:")
+    print("     python -m rag reindex")
+    step += 1
     print()
     if not ollama_ok:
-        print("  2. Start Ollama and pull the embedding model:")
+        print(f"  {step}. Start Ollama and pull the embedding model:")
         print("     ollama serve")
         print("     ollama pull nomic-embed-text")
-    print("  3. Search your docs:")
+        step += 1
+    print(f"  {step}. Search your docs:")
     print("     python -m rag query \"your query here\"")
+    step += 1
     print()
-    print("  4. Run tests to verify:")
+    if gateway_configured:
+        print(f"  {step}. Run the gateway MCP server:")
+        print("     python -m rag gateway")
+        step += 1
+        print()
+    print(f"  {step}. Run tests to verify:")
     print("     pytest tests/ -v -k \"not slow\"")
     print()
     print(f"  Config file: {TARGET}")
+    if gateway_configured:
+        print(f"  Gateway config file: {GATEWAY_TARGET}")
     print()
 
     return 0

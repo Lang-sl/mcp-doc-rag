@@ -9,6 +9,10 @@ Prerequisites:
 
 Then run this script:
     python examples/quickstart.py
+
+For CodeGraph gateway search, create gateway.yaml with setup_config.py and
+run the MCP gateway server with:
+    python -m rag gateway
 """
 
 from rag.config import load_config

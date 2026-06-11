@@ -130,6 +130,7 @@ python setup_config.py
 该交互式脚本将：
 - 从模板创建 `config.yaml`
 - 帮助你添加文档源路径
+- 可选创建用于 CodeGraph gateway 搜索的 `gateway.yaml`
 - 验证 Ollama 是否在运行
 
 也可以手动复制并编辑模板：
@@ -686,71 +687,6 @@ pytest tests/ -v -k "not slow"
 40 passed, 13 skipped    ← ⚠️ 阶段 8+ 被跳过。检查 Ollama 和索引。
 3 failed, 50 passed      ← ❌ 失败表明特定组件有问题。
                             逐阶段运行以隔离问题。
-```
-
-## 项目结构
-
-```
-mcp-doc-rag/
-├── pyproject.toml
-├── setup_config.py            # 交互式配置向导
-├── .gitignore
-├── LICENSE
-├── README.md
-├── tests/
-│   ├── conftest.py              # 共享 fixture、Ollama 检测
-│   ├── test_01_config.py        # 阶段 1：配置加载
-│   ├── test_02_source_manager.py # 阶段 2：文档源 CRUD
-│   ├── test_03_symbol_index.py  # 阶段 3：符号索引
-│   ├── test_04_parser.py        # 阶段 4：HTML 解析器
-│   ├── test_05_chunker.py       # 阶段 5：Chunk 组装
-│   ├── test_06_context_builder.py # 阶段 6：上下文构建器
-│   ├── test_07_crawler.py       # 阶段 7：文件爬虫
-│   ├── test_08_embedder.py      # 阶段 8：嵌入
-│   ├── test_09_search.py        # 阶段 9：搜索流水线
-│   ├── test_10_query_rewriter.py   # 阶段 10：查询改写单元测试
-│   ├── test_11_e2e.py           # 阶段 11：完整端到端（慢速）
-│   ├── test_12_llm_rewriter.py   # 阶段 12：LLM 改写器单元测试
-│   ├── test_13_eval_trace.py     # 阶段 13：评估追踪单元测试
-│   ├── test_14_gateway_config.py # 阶段 14：Gateway 配置
-│   ├── test_15_gateway_tools.py  # 阶段 15：Gateway 工具
-│   ├── test_16_gateway_server.py # 阶段 16：Gateway MCP server
-│   ├── test_17_gateway_cli.py    # 阶段 17：Gateway CLI 入口
-│   └── eval/
-│       ├── test_metrics.py      # 评估指标单元测试
-│       ├── queries.jsonl        # 标注评估数据集
-│       └── baseline.txt         # Baseline 指标记录
-└── src/rag/
-    ├── config.example.yaml    # 配置模板
-    ├── server.py              # MCP 服务器（11 个工具，stdio JSON-RPC）
-    ├── cli.py                 # CLI 入口
-    ├── config.py              # YAML 配置加载器
-    ├── eval.py                # 评估指标：Recall@K、MRR、NDCG@K
-    ├── models.py              # Chunk、SearchResult、IndexStats 数据类
-    ├── symbol_index.py        # O(1) 符号哈希映射
-    ├── source_manager.py      # 文档源 CRUD
-    ├── context_builder.py     # token 受限的上下文格式化器
-    ├── gateway/
-    │   ├── config.py            # Gateway YAML 配置加载器
-    │   ├── doc_backend.py       # 进程内 doc-rag 后端封装
-    │   ├── codegraph_client.py  # 可选 CodeGraph MCP 子进程客户端
-    │   ├── server.py            # Gateway MCP server 与 JSON-RPC 分发
-    │   └── tools.py             # Smart search 与工具路由
-    ├── indexer/
-    │   ├── crawler.py           # 文件遍历器带 SHA1 增量检查
-    │   ├── parser_registry.py   # 基于装饰器的解析器注册
-    │   ├── parser_html.py       # Doxygen HTML 解析器（4 种格式）
-    │   ├── parser_pdf.py        # PDF 文本提取器
-    │   ├── parser_header.py     # C++ 头文件签名提取器
-    │   ├── chunker.py           # 结构化 chunk 组装器
-    │   ├── embedder.py          # Ollama 批量嵌入封装
-    │   └── orchestrator.py      # 完整索引流水线
-    └── retriever/
-        ├── vector_search.py   # ChromaDB ANN 按 collection
-        ├── bm25_search.py     # 字段加权 BM25
-        ├── hybrid.py          # 完整流水线编排
-        ├── query_rewriter.py  # 基于规则的领域同义词扩展
-        └── reranker.py        # jina-reranker-v2 跨编码器
 ```
 
 ## 开源协议

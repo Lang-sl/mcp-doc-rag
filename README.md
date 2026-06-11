@@ -130,6 +130,7 @@ python setup_config.py
 This interactive script will:
 - Create `config.yaml` from the template
 - Help you add document source paths
+- Optionally create `gateway.yaml` for CodeGraph gateway search
 - Verify Ollama is running
 
 Alternatively, copy and edit the template manually:
@@ -702,71 +703,6 @@ pytest tests/ -v -k "not slow"
 40 passed, 13 skipped    ← ⚠️ Stages 8+ skipped. Check Ollama and index.
 3 failed, 50 passed      ← ❌ Failures indicate specific component issues.
                             Run stages individually to isolate.
-```
-
-## Project Structure
-
-```
-mcp-doc-rag/
-├── pyproject.toml
-├── setup_config.py            # Interactive config setup wizard
-├── .gitignore
-├── LICENSE
-├── README.md
-├── tests/
-│   ├── conftest.py              # Shared fixtures, Ollama detection
-│   ├── test_01_config.py        # Stage 1: Config loading
-│   ├── test_02_source_manager.py # Stage 2: Source CRUD
-│   ├── test_03_symbol_index.py  # Stage 3: Symbol index
-│   ├── test_04_parser.py        # Stage 4: HTML parser
-│   ├── test_05_chunker.py       # Stage 5: Chunk assembly
-│   ├── test_06_context_builder.py # Stage 6: Context builder
-│   ├── test_07_crawler.py       # Stage 7: File crawler
-│   ├── test_08_embedder.py      # Stage 8: Embedding
-│   ├── test_09_search.py        # Stage 9: Search pipeline
-│   ├── test_10_query_rewriter.py   # Stage 10: Query rewrite unit tests
-│   ├── test_11_e2e.py           # Stage 11: Full E2E (slow)
-│   ├── test_12_llm_rewriter.py   # Stage 12: LLM rewriter unit tests
-│   ├── test_13_eval_trace.py     # Stage 13: Eval trace unit tests
-│   ├── test_14_gateway_config.py # Stage 14: Gateway config
-│   ├── test_15_gateway_tools.py  # Stage 15: Gateway tools
-│   ├── test_16_gateway_server.py # Stage 16: Gateway MCP server
-│   ├── test_17_gateway_cli.py    # Stage 17: Gateway CLI entrypoint
-│   └── eval/
-│       ├── test_metrics.py      # Metric function unit tests
-│       ├── queries.jsonl        # Annotated evaluation dataset
-│       └── baseline.txt         # Baseline metrics record
-└── src/rag/
-    ├── config.example.yaml    # Configuration template
-    ├── server.py              # MCP Server (11 tools, stdio JSON-RPC)
-    ├── cli.py                 # CLI entry point
-    ├── config.py              # YAML config loader
-    ├── eval.py                # Evaluation metrics: Recall@K, MRR, NDCG@K
-    ├── models.py              # Chunk, SearchResult, IndexStats dataclasses
-    ├── symbol_index.py        # O(1) symbol hash map
-    ├── source_manager.py      # CRUD for doc sources
-    ├── context_builder.py     # Token-bounded context formatter
-    ├── gateway/
-    │   ├── config.py            # Gateway YAML config loader
-    │   ├── doc_backend.py       # In-process doc-rag backend wrapper
-    │   ├── codegraph_client.py  # Optional CodeGraph MCP subprocess client
-    │   ├── server.py            # Gateway MCP server and JSON-RPC dispatch
-    │   └── tools.py             # Smart search and passthrough tool routing
-    ├── indexer/
-    │   ├── crawler.py           # File walker with SHA1 incremental check
-    │   ├── parser_registry.py   # Decorator-based parser registration
-    │   ├── parser_html.py       # Doxygen HTML parser (4 formats)
-    │   ├── parser_pdf.py        # PDF text extractor
-    │   ├── parser_header.py     # C++ header signature extractor
-    │   ├── chunker.py           # Structured chunk assembler
-    │   ├── embedder.py          # Ollama batch embedding wrapper
-    │   └── orchestrator.py      # Full index pipeline
-    └── retriever/
-        ├── vector_search.py   # ChromaDB ANN per collection
-        ├── bm25_search.py     # Field-weighted BM25
-        ├── hybrid.py          # Full pipeline orchestration
-        ├── query_rewriter.py  # Rule-based domain synonym expansion
-        └── reranker.py        # jina-reranker-v2 cross-encoder
 ```
 
 ## License

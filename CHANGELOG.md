@@ -16,6 +16,7 @@
 - **CodeGraph gateway MCP server**: optional gateway that combines doc-rag tools with runtime CodeGraph MCP tools and `smart_search` code-to-doc matching. CodeGraph is launched through pinned `npx -y @colbymchenry/codegraph@0.9.9 serve --mcp` and degrades to doc-only search when unavailable.
 - **Gateway CLI entrypoint**: `python -m rag gateway` / `rag gateway` starts the gateway stdio MCP server without loading the normal doc-rag config first.
 - **Gateway config template**: `src/rag/gateway.example.yaml` documents doc-rag config wiring and optional CodeGraph startup settings.
+- **Gateway setup wizard support**: `setup_config.py` can optionally create `gateway.yaml` and point it at the generated doc-rag config.
 - **Gateway test stages 14-17**: added coverage for gateway config loading, doc backend, CodeGraph client fakes, smart search routing, MCP server JSON-RPC handling, and CLI dispatch.
 
 ### Added (config)
