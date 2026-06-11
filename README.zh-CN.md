@@ -93,10 +93,10 @@ pip install -e ".[header-ast]"
 Gateway 可以选择性地将文档搜索与 CodeGraph 代码搜索结合。CodeGraph 不是 Python 包依赖，也不需要全局安装。启用后，gateway 会通过 npm 启动：
 
 ```bash
-npx -y @colbymchenry/codegraph@latest serve --mcp
+npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
 ```
 
-这要求 Node.js 以及 npm/npx 位于 `PATH` 中。`@latest` 标签会使用 CodeGraph 最新版本，`-y` 允许 npx 在首次使用时自动拉取包。如果未配置 CodeGraph 或启动失败，gateway 会降级为仅文档搜索。
+这要求 Node.js 以及 npm/npx 位于 `PATH` 中。版本 `0.9.9` 是当前针对 gateway 验证过的 CodeGraph 发布版；升级时应显式更新版本并重新检查 CodeGraph MCP 契约。`-y` 允许 npx 在首次使用时自动拉取包。如果未配置 CodeGraph 或启动失败，gateway 会降级为仅文档搜索。
 
 ### GPU 加速（推荐）
 

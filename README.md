@@ -93,10 +93,10 @@ Without this, the system falls back to regex-based parsing which handles most ca
 The gateway can optionally combine doc search with CodeGraph code search. CodeGraph is not a Python package dependency and does not need a global install. When enabled, the gateway launches it through npm with:
 
 ```bash
-npx -y @colbymchenry/codegraph@latest serve --mcp
+npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
 ```
 
-This requires Node.js with npm/npx on `PATH`. The `@latest` tag keeps CodeGraph current, and `-y` lets npx fetch the package automatically on first use. If CodeGraph is not configured or cannot start, the gateway degrades to doc-only search.
+This requires Node.js with npm/npx on `PATH`. Version `0.9.9` is the current verified CodeGraph release for this gateway; update it deliberately and re-check the CodeGraph MCP contract when upgrading. The `-y` flag lets npx fetch the package automatically on first use. If CodeGraph is not configured or cannot start, the gateway degrades to doc-only search.
 
 ### GPU Acceleration (Recommended)
 

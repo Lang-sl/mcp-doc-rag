@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-_DEFAULT_CODEGRAPH_ARGS = ["-y", "@colbymchenry/codegraph@latest", "serve", "--mcp"]
+_DEFAULT_CODEGRAPH_ARGS = ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
 
 
 @dataclass(frozen=True)

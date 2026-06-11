@@ -24,8 +24,8 @@ def test_non_dict_gateway_config_returns_doc_only_defaults(tmp_path: Path):
     assert config == GatewayConfig(codegraph=None, doc_rag_config_path=None)
 
 
-def test_default_codegraph_config_uses_latest_optional_npm_package():
-    assert CodeGraphConfig().args == ["-y", "@colbymchenry/codegraph@latest", "serve", "--mcp"]
+def test_default_codegraph_config_uses_pinned_optional_npm_package():
+    assert CodeGraphConfig().args == ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
 
 
 def test_load_gateway_config_reads_codegraph_and_doc_config(tmp_path: Path):
