@@ -5,8 +5,8 @@
 #   python setup_config.py
 
 # ---- Paths (relative to project root or absolute) ----
-chroma_dir: ./chroma_db
-symbol_index_path: ./symbol_index.json
+chroma_dir: ./output/chroma_db
+symbol_index_path: ./output/symbol_index.json
 
 # ---- Document Sources ----
 # Format:  label: /absolute/path/to/documentation
@@ -18,7 +18,7 @@ doc_sources:
 ollama_host: http://localhost:11434
 embed_model: nomic-embed-text
 embed_dim: 768
-embed_batch_size: 64
+embed_batch_size: 256
 
 # ---- Reranker ----
 reranker_model: jinaai/jina-reranker-v2-base-multilingual
@@ -26,6 +26,7 @@ reranker_max_length: 512
 
 # ---- Chunking ----
 chunk_max_chars: 2000
+chunk_overlap_ratio: 0.10
 
 # ---- Retrieval ----
 top_k_default: 10
@@ -59,8 +60,8 @@ context_max_tokens: 6000
 
 # ---- Cache ----
 cache_max_entries: 128
-embedding_cache_dir: ./chroma_db/embedding_cache
-bm25_cache_dir: ./chroma_db/bm25_cache
+embedding_cache_dir: ./output/chroma_db/embedding_cache
+bm25_cache_dir: ./output/chroma_db/bm25_cache
 
 # ---- Reranker Optimization ----
 reranker_score_gap_threshold: 0.15   # 0 = never skip reranker

@@ -22,8 +22,8 @@
 - `query_rewrite_enabled: true`
 - `query_rewrite_max_variants: 3`
 - `rrf_bm25_weight: 2.0`
-- `embedding_cache_dir: ./chroma_db/embedding_cache`
-- `bm25_cache_dir: ./chroma_db/bm25_cache`
+- `embedding_cache_dir: ./output/chroma_db/embedding_cache`
+- `bm25_cache_dir: ./output/chroma_db/bm25_cache`
 - `reranker_score_gap_threshold: 0.15`
 - `reranker_max_candidates: 30`
 
