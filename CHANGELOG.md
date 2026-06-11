@@ -13,6 +13,10 @@
 - **Context-aware reranker candidate selection**: prioritize API chunk types (function/class/enum/macro/typedef) in reranker input, reducing max candidates from 40 to 30 (configurable via `reranker_max_candidates`). Narrative chunks fill remaining slots only when API types are exhausted.
 - **File deletion auto-cleanup**: reindex detects files deleted from source directories and automatically removes stale chunks from ChromaDB, the symbol index, and the index state file.
 - **Header AST chunking**: tree-sitter-cpp based C++ header parsing replaces regex heuristics, providing accurate extraction of complex templates, nested classes, macros, typedefs, and `using` declarations. Falls back to regex when tree-sitter is not installed.
+- **CodeGraph gateway MCP server**: optional gateway that combines doc-rag tools with runtime CodeGraph MCP tools and `smart_search` code-to-doc matching. CodeGraph is launched through pinned `npx -y @colbymchenry/codegraph@0.9.9 serve --mcp` and degrades to doc-only search when unavailable.
+- **Gateway CLI entrypoint**: `python -m rag gateway` / `rag gateway` starts the gateway stdio MCP server without loading the normal doc-rag config first.
+- **Gateway config template**: `src/rag/gateway.example.yaml` documents doc-rag config wiring and optional CodeGraph startup settings.
+- **Gateway test stages 14-17**: added coverage for gateway config loading, doc backend, CodeGraph client fakes, smart search routing, MCP server JSON-RPC handling, and CLI dispatch.
 
 ### Added (config)
 - `query_rewrite_enabled: true`

@@ -1,0 +1,13 @@
+# mcp-doc-rag Gateway Configuration
+# Copy this file to gateway.yaml and fill in your project paths.
+
+# Existing doc-rag configuration. If omitted, the gateway uses the normal
+# RAG_CONFIG_PATH/config.yaml resolution used by the doc backend.
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+
+# Optional CodeGraph MCP server. Remove this section for doc-only gateway mode.
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<absolute-path-to-code-project>"

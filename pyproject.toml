@@ -74,6 +74,7 @@ Issues = "https://github.com/Lang-sl/mcp-doc-rag/issues"
 rag = [
     "py.typed",
     "config.example.yaml",
+    "gateway.example.yaml",
 ]
 
 [tool.pytest.ini_options]

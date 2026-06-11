@@ -331,7 +331,7 @@ To use the CodeGraph gateway server, point the MCP entry at the gateway CLI:
 }
 ```
 
-Minimal `gateway.yaml`:
+Copy `src/rag/gateway.example.yaml` to `gateway.yaml`, then fill in the paths. Minimal shape:
 
 ```yaml
 doc_rag:

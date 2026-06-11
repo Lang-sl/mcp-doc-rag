@@ -325,7 +325,7 @@ mcp-doc-rag 是一个 MCP 服务器——AI 编程助手可以直接调用其工
 }
 ```
 
-最小 `gateway.yaml`：
+将 `src/rag/gateway.example.yaml` 复制为 `gateway.yaml` 后填入路径。最小结构：
 
 ```yaml
 doc_rag:

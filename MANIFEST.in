@@ -9,6 +9,7 @@ include LICENSE
 
 # Configuration template (NOT the user's config.yaml)
 include src/rag/config.example.yaml
+include src/rag/gateway.example.yaml
 
 # Setup wizard
 include setup_config.py
