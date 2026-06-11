@@ -88,6 +88,16 @@ pip install -e ".[header-ast]"
 
 Without this, the system falls back to regex-based parsing which handles most cases but may be less accurate for complex C++ constructs.
 
+### Optional: CodeGraph Gateway Search
+
+The gateway can optionally combine doc search with CodeGraph code search. CodeGraph is not a Python package dependency and does not need a global install. When enabled, the gateway launches it through npm with:
+
+```bash
+npx -y @colbymchenry/codegraph@latest serve --mcp
+```
+
+This requires Node.js with npm/npx on `PATH`. The `@latest` tag keeps CodeGraph current, and `-y` lets npx fetch the package automatically on first use. If CodeGraph is not configured or cannot start, the gateway degrades to doc-only search.
+
 ### GPU Acceleration (Recommended)
 
 The reranker runs ~500× faster on GPU vs CPU. Install the CUDA-enabled PyTorch:
@@ -592,7 +602,7 @@ Any failure (model not found, timeout, invalid JSON) transparently falls back to
 
 ## Step-by-Step Verification (Tests)
 
-The test suite is organized into 11 numbered stages — run them in order to verify each layer of the system. Each stage builds on the previous one.
+The test suite is organized into numbered stages — run them in order to verify each layer of the system. Each stage builds on the previous one.
 
 ### Quick Run
 
@@ -615,6 +625,9 @@ pytest tests/test_10_query_rewriter.py -v
 # Stage 11: full end-to-end (slow — needs everything)
 pytest tests/test_11_e2e.py -v -m slow
 
+# Stage 14-15: gateway config, backend, CodeGraph client, and smart search
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py -v
+
 # Run everything except slow E2E
 pytest tests/ -v -k "not slow"
 ```
@@ -636,6 +649,8 @@ pytest tests/ -v -k "not slow"
 | 11 | `test_11_e2e.py` | Full pipeline: index small doc set → search → verify | Stage 8 + document files |
 | 12 | `test_12_llm_rewriter.py` | LLM rewriter JSON parsing, fallback on failure, symbol skip | None |
 | 13 | `test_13_eval_trace.py` | PipelineTrace recall, bad case classification | None |
+| 14 | `test_14_gateway_config.py` | Gateway config loading and optional CodeGraph defaults | None |
+| 15 | `test_15_gateway_tools.py` | Gateway doc backend, CodeGraph client fakes, smart search routing | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 
@@ -680,6 +695,8 @@ mcp-doc-rag/
 │   ├── test_11_e2e.py           # Stage 11: Full E2E (slow)
 │   ├── test_12_llm_rewriter.py   # Stage 12: LLM rewriter unit tests
 │   ├── test_13_eval_trace.py     # Stage 13: Eval trace unit tests
+│   ├── test_14_gateway_config.py # Stage 14: Gateway config
+│   ├── test_15_gateway_tools.py  # Stage 15: Gateway tools
 │   └── eval/
 │       ├── test_metrics.py      # Metric function unit tests
 │       ├── queries.jsonl        # Annotated evaluation dataset
@@ -694,6 +711,11 @@ mcp-doc-rag/
     ├── symbol_index.py        # O(1) symbol hash map
     ├── source_manager.py      # CRUD for doc sources
     ├── context_builder.py     # Token-bounded context formatter
+    ├── gateway/
+    │   ├── config.py            # Gateway YAML config loader
+    │   ├── doc_backend.py       # In-process doc-rag backend wrapper
+    │   ├── codegraph_client.py  # Optional CodeGraph MCP subprocess client
+    │   └── tools.py             # Smart search and passthrough tool routing
     ├── indexer/
     │   ├── crawler.py           # File walker with SHA1 incremental check
     │   ├── parser_registry.py   # Decorator-based parser registration

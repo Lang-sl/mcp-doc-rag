@@ -88,6 +88,16 @@ pip install -e ".[header-ast]"
 
 未安装时，系统回退到基于正则表达式的解析，适用于大多数情况但对复杂 C++ 结构可能不够精确。
 
+### 可选：CodeGraph Gateway 搜索
+
+Gateway 可以选择性地将文档搜索与 CodeGraph 代码搜索结合。CodeGraph 不是 Python 包依赖，也不需要全局安装。启用后，gateway 会通过 npm 启动：
+
+```bash
+npx -y @colbymchenry/codegraph@latest serve --mcp
+```
+
+这要求 Node.js 以及 npm/npx 位于 `PATH` 中。`@latest` 标签会使用 CodeGraph 最新版本，`-y` 允许 npx 在首次使用时自动拉取包。如果未配置 CodeGraph 或启动失败，gateway 会降级为仅文档搜索。
+
 ### GPU 加速（推荐）
 
 Reranker 在 GPU 上比 CPU 快约 500 倍。安装 CUDA 版 PyTorch：
@@ -576,7 +586,7 @@ Ollama /api/chat → qwen2.5:3b
 
 ## 分步验证（测试）
 
-测试套件按 11 个编号阶段组织——按顺序运行以逐层验证系统的每个部分。每个阶段都建立在前一个阶段之上。
+测试套件按编号阶段组织——按顺序运行以逐层验证系统的每个部分。每个阶段都建立在前一个阶段之上。
 
 ### 快速运行
 
@@ -599,6 +609,9 @@ pytest tests/test_10_query_rewriter.py -v
 # 阶段 11：完整端到端（较慢——需要所有环境）
 pytest tests/test_11_e2e.py -v -m slow
 
+# 阶段 14-15：gateway 配置、后端、CodeGraph 客户端与 smart search
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py -v
+
 # 运行除慢速端到端测试外的全部测试
 pytest tests/ -v -k "not slow"
 ```
@@ -620,6 +633,8 @@ pytest tests/ -v -k "not slow"
 | 11 | `test_11_e2e.py` | 完整流水线：索引小文档集 → 搜索 → 验证 | 阶段 8 + 文档文件 |
 | 12 | `test_12_llm_rewriter.py` | LLM 改写器 JSON 解析、失败回退、符号跳过 | 无 |
 | 13 | `test_13_eval_trace.py` | PipelineTrace 召回率、Bad Case 分类 | 无 |
+| 14 | `test_14_gateway_config.py` | Gateway 配置加载与可选 CodeGraph 默认值 | 无 |
+| 15 | `test_15_gateway_tools.py` | Gateway 文档后端、CodeGraph 客户端 fake、smart search 路由 | 无 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
@@ -664,6 +679,8 @@ mcp-doc-rag/
 │   ├── test_11_e2e.py           # 阶段 11：完整端到端（慢速）
 │   ├── test_12_llm_rewriter.py   # 阶段 12：LLM 改写器单元测试
 │   ├── test_13_eval_trace.py     # 阶段 13：评估追踪单元测试
+│   ├── test_14_gateway_config.py # 阶段 14：Gateway 配置
+│   ├── test_15_gateway_tools.py  # 阶段 15：Gateway 工具
 │   └── eval/
 │       ├── test_metrics.py      # 评估指标单元测试
 │       ├── queries.jsonl        # 标注评估数据集
@@ -678,6 +695,11 @@ mcp-doc-rag/
     ├── symbol_index.py        # O(1) 符号哈希映射
     ├── source_manager.py      # 文档源 CRUD
     ├── context_builder.py     # token 受限的上下文格式化器
+    ├── gateway/
+    │   ├── config.py            # Gateway YAML 配置加载器
+    │   ├── doc_backend.py       # 进程内 doc-rag 后端封装
+    │   ├── codegraph_client.py  # 可选 CodeGraph MCP 子进程客户端
+    │   └── tools.py             # Smart search 与工具路由
     ├── indexer/
     │   ├── crawler.py           # 文件遍历器带 SHA1 增量检查
     │   ├── parser_registry.py   # 基于装饰器的解析器注册
