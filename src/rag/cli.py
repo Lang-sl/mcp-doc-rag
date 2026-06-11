@@ -130,6 +130,9 @@ def main() -> None:
     p_eval.add_argument("--bad-cases-only", action="store_true", help="Output only bad case analysis")
     p_eval.add_argument("--compare-rewrite", action="store_true", help="Compare LLM rewrite vs rule rewrite vs none")
 
+    # gateway
+    sub.add_parser("gateway", help="Run the gateway MCP stdio server")
+
     # status
     sub.add_parser("status", help="Show index status")
 
@@ -138,6 +141,12 @@ def main() -> None:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    if args.command == "gateway":
+        from rag.gateway.server import main as gateway_main
+
+        gateway_main()
+        return
 
     config = load_config()
 
