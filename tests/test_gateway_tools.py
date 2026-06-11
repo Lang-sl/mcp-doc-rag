@@ -461,3 +461,166 @@ def test_codegraph_client_start_times_out_and_degrades():
     assert client.available is False
     assert client.tool_names == []
     assert process.terminated is True
+
+
+class FakeGatewayDocBackend:
+    def __init__(self) -> None:
+        self.searches: list[tuple[str, int]] = []
+        self.lookups: list[str] = []
+
+    def find_symbol(self, symbol: str) -> dict | None:
+        self.lookups.append(symbol)
+        if symbol == "Sdk::Render":
+            return {"symbol_id": "api-render", "name": symbol}
+        if symbol == "ProjectOnly":
+            return {"symbol_id": "api-project", "name": symbol}
+        if symbol == "Open":
+            return {"symbol_id": "api-open", "name": symbol}
+        return None
+
+    def search_docs(self, query: str, top_k: int = 10) -> list[dict]:
+        self.searches.append((query, top_k))
+        return [{"query": query, "top_k": top_k}]
+
+    def get_api_class(self, class_name: str) -> dict:
+        return {"class_name": class_name}
+
+    def get_api_function(self, func_name: str, class_name: str | None = None) -> dict:
+        return {"func_name": func_name, "class_name": class_name}
+
+    def list_modules(self, source_label: str | None = None) -> list[str]:
+        return [source_label or "all"]
+
+
+class FakeGatewayCodeGraphClient:
+    def __init__(self, result: dict | None = None, available: bool = True) -> None:
+        self.available = available
+        self.tool_names = ["codegraph_search", "codegraph_extra"]
+        self.result = result or {}
+        self.calls: list[tuple[str, dict]] = []
+
+    def call_tool(self, name: str, arguments: dict) -> dict:
+        self.calls.append((name, arguments))
+        return self.result
+
+
+def test_normalize_symbol_candidates_preserves_exact_template_stripped_and_final_member():
+    from rag.gateway.tools import normalize_symbol_candidates
+
+    assert normalize_symbol_candidates("Sdk::Render<Mesh>") == ["Sdk::Render<Mesh>", "Sdk::Render", "Render"]
+
+
+def test_extract_symbol_names_reads_markdown_headings_from_text_dict():
+    from rag.gateway.tools import extract_symbol_names
+
+    value = {
+        "text": "## Search Results...\n\n### Sdk::Render<Mesh> (method)\n...\n\n### ProjectOnly (function)\n..."
+    }
+
+    assert extract_symbol_names(value) == ["Sdk::Render<Mesh>", "ProjectOnly"]
+
+
+def test_extract_symbol_names_ignores_generic_name_metadata():
+    from rag.gateway.tools import extract_symbol_names
+
+    value = {
+        "name": "search results",
+        "text": "### Sdk::Render<Mesh> (method)\n...",
+    }
+
+    assert extract_symbol_names(value) == ["Sdk::Render<Mesh>"]
+
+
+def test_smart_search_degrades_to_doc_search_when_codegraph_unavailable():
+    from rag.gateway.tools import GatewayTools
+
+    doc_backend = FakeGatewayDocBackend()
+    codegraph_client = FakeGatewayCodeGraphClient(available=False)
+    tools = GatewayTools(doc_backend, codegraph_client)
+
+    result = tools.smart_search("render mesh", top_k=3)
+
+    assert result["degraded"] is True
+    assert result["code_usages"] == []
+    assert result["matched_api_symbols"] == []
+    assert result["unmatched_code_symbols"] == []
+    assert result["doc_results"] == [{"query": "render mesh", "top_k": 3}]
+    assert doc_backend.searches == [("render mesh", 3)]
+    assert codegraph_client.calls == []
+
+
+def test_smart_search_keeps_matched_symbols_and_unmatched_symbols_when_codegraph_available():
+    from rag.gateway.tools import GatewayTools
+
+    codegraph_result = {
+        "content": [
+            {
+                "type": "text",
+                "text": "### Sdk::Render<Mesh> (method)\n...\n\n### Missing::Call (function)\n...",
+            }
+        ]
+    }
+    doc_backend = FakeGatewayDocBackend()
+    codegraph_client = FakeGatewayCodeGraphClient(codegraph_result)
+    tools = GatewayTools(doc_backend, codegraph_client)
+
+    result = tools.smart_search("render mesh", top_k=2)
+
+    assert result["degraded"] is False
+    assert result["code_usages"] == {"text": codegraph_result["content"][0]["text"]}
+    assert result["matched_api_symbols"] == [{"symbol_id": "api-render", "name": "Sdk::Render"}]
+    assert result["unmatched_code_symbols"] == ["Missing::Call"]
+    assert doc_backend.searches == [("api-render", 2)]
+    assert codegraph_client.calls == [("codegraph_search", {"query": "render mesh"})]
+
+
+def test_smart_search_does_not_match_unrelated_unqualified_member_fallback():
+    from rag.gateway.tools import GatewayTools
+
+    codegraph_result = {
+        "content": [
+            {
+                "type": "text",
+                "text": "### Foo::Open (method)\n...",
+            }
+        ]
+    }
+    doc_backend = FakeGatewayDocBackend()
+    codegraph_client = FakeGatewayCodeGraphClient(codegraph_result)
+    tools = GatewayTools(doc_backend, codegraph_client)
+
+    result = tools.smart_search("open file", top_k=2)
+
+    assert result["matched_api_symbols"] == []
+    assert result["unmatched_code_symbols"] == ["Foo::Open"]
+    assert doc_backend.searches == [("open file", 2)]
+    assert "Open" not in doc_backend.lookups
+
+
+def test_smart_search_degrades_when_codegraph_call_returns_error():
+    from rag.gateway.tools import GatewayTools
+
+    doc_backend = FakeGatewayDocBackend()
+    codegraph_client = FakeGatewayCodeGraphClient({"error": "bad request"})
+    tools = GatewayTools(doc_backend, codegraph_client)
+
+    result = tools.smart_search("render mesh", top_k=4)
+
+    assert result["degraded"] is True
+    assert result["matched_api_symbols"] == []
+    assert result["unmatched_code_symbols"] == []
+    assert result["doc_results"] == [{"query": "render mesh", "top_k": 4}]
+    assert result["warnings"] == ["bad request"]
+
+
+def test_gateway_tools_call_tool_routes_missing_doc_passthrough_methods():
+    from rag.gateway.tools import GatewayTools
+
+    tools = GatewayTools(FakeGatewayDocBackend(), FakeGatewayCodeGraphClient())
+
+    assert tools.call_tool("get_api_class", {"class_name": "Sdk"}) == {"class_name": "Sdk"}
+    assert tools.call_tool("get_api_function", {"func_name": "Render", "class_name": "Sdk"}) == {
+        "func_name": "Render",
+        "class_name": "Sdk",
+    }
+    assert tools.call_tool("list_modules", {"source_label": "sdk"}) == ["sdk"]
