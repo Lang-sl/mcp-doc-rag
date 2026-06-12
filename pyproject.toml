@@ -78,6 +78,7 @@ rag = [
 ]
 
 [tool.pytest.ini_options]
+addopts = "--basetemp=.pytest-tmp"
 markers = [
     "slow: marks tests as slow (deselect with '-k \"not slow\"')",
 ]
