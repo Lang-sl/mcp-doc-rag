@@ -625,3 +625,42 @@ def test_gateway_tools_call_tool_routes_missing_doc_passthrough_methods():
         "class_name": "Sdk",
     }
     assert tools.call_tool("list_modules", {"source_label": "sdk"}) == ["sdk"]
+
+
+def test_codegraph_client_health_reports_running_tools_and_error_state():
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+    ]
+    process = FakeProcess(responses)
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: process)
+    client.start()
+
+    assert client.health() == {
+        "available": True,
+        "process_running": True,
+        "tool_names": ["codegraph_search"],
+        "last_startup_error": None,
+    }
+
+
+def test_codegraph_client_restart_stops_old_process_and_loads_tools():
+    first_process = FakeProcess(
+        [
+            {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "codegraph_search"}]}},
+        ]
+    )
+    second_process = FakeProcess(
+        [
+            {"jsonrpc": "2.0", "id": 3, "result": {"protocolVersion": "2024-11-05"}},
+            {"jsonrpc": "2.0", "id": 4, "result": {"tools": [{"name": "codegraph_files"}]}},
+        ]
+    )
+    processes = [first_process, second_process]
+    client = CodeGraphClient(CodeGraphConfig(), process_factory=lambda command, cwd: processes.pop(0))
+    client.start()
+
+    assert client.restart() is True
+    assert first_process.terminated is True
+    assert client.tool_names == ["codegraph_files"]

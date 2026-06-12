@@ -46,6 +46,7 @@ class CodeGraphClient:
         self.available = False
         self.tools: list[dict] = []
         self.tool_names: list[str] = []
+        self.last_startup_error: str | None = None
         self._next_id = 1
         self._responses: queue.Queue[dict | Exception] = queue.Queue()
         self._pending_responses: dict[int, dict] = {}
@@ -69,7 +70,8 @@ class CodeGraphClient:
             )
             self._notify("notifications/initialized", {})
             tools_result = self._request("tools/list", {})
-        except Exception:
+        except Exception as exc:
+            self.last_startup_error = str(exc)
             self._mark_unavailable()
             self._shutdown_process()
             return False
@@ -77,6 +79,7 @@ class CodeGraphClient:
         self.tools = [item for item in tools_result.get("tools", []) if isinstance(item, dict) and "name" in item]
         self.tool_names = [item["name"] for item in self.tools]
         self.available = True
+        self.last_startup_error = None
         return True
 
     def call_tool(self, name: str, arguments: dict) -> dict:
@@ -92,6 +95,31 @@ class CodeGraphClient:
             self._mark_unavailable()
             self._shutdown_process()
             return {"error": "CodeGraph unavailable"}
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def health(self) -> dict:
+        return {
+            "available": self.available,
+            "process_running": self.is_running(),
+            "tool_names": list(self.tool_names),
+            "last_startup_error": self.last_startup_error,
+        }
+
+    def restart(self) -> bool:
+        self.shutdown()
+        return self.start()
+
+    def shutdown(self) -> None:
+        self._mark_unavailable()
+        self._shutdown_process()
+        self.process = None
+        while not self._responses.empty():
+            try:
+                self._responses.get_nowait()
+            except queue.Empty:
+                break
 
     def _request(self, method: str, params: dict) -> dict:
         request_id = self._next_id
