@@ -65,6 +65,17 @@ def test_handle_request_initialized_notification_returns_none():
     assert response is None
 
 
+def test_handle_request_mcp_initialized_notification_returns_none():
+    from rag.gateway.server import handle_request
+
+    response = handle_request(
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        SimpleNamespace(),
+    )
+
+    assert response is None
+
+
 def test_handle_request_tools_list_handles_missing_codegraph_client():
     from rag.gateway.server import handle_request
 

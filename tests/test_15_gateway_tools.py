@@ -420,6 +420,12 @@ def test_codegraph_client_tool_error_does_not_disable_client():
     assert client.available is True
 
 
+def test_codegraph_client_default_timeout_allows_slow_codegraph_calls():
+    client = CodeGraphClient(CodeGraphConfig())
+
+    assert client.response_timeout_seconds >= 30.0
+
+
 class HangingStdout:
     def readline(self):
         import time

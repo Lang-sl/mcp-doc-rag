@@ -37,7 +37,7 @@ class CodeGraphClient:
         self,
         config: CodeGraphConfig | None,
         process_factory: ProcessFactory | None = None,
-        response_timeout_seconds: float = 5.0,
+        response_timeout_seconds: float = 30.0,
     ):
         self.config = config
         self.process_factory = process_factory or _default_process_factory

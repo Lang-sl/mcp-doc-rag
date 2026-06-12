@@ -66,6 +66,9 @@ def handle_request(request: dict, tools_handler: GatewayTools) -> dict | None:
     request_id = request.get("id")
     method = request.get("method")
 
+    if "id" not in request and method != "initialize":
+        return None
+
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
