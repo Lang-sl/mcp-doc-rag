@@ -157,3 +157,74 @@ def test_reindex_force_restarts_client_after_success(tmp_path: Path) -> None:
     assert result["action"] == "reindexed"
     assert client.restart_count == 1
     assert calls == [[npx, "-y", "@colbymchenry/codegraph@0.9.9", "index", "--force"]]
+
+
+def test_init_existing_index_returns_current_status_without_cli_init(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / ".codegraph").mkdir(parents=True)
+    calls: list[list[str]] = []
+    npx = _expected_npx()
+
+    def runner(command: list[str], cwd: str) -> FakeCompletedProcess:
+        calls.append(command)
+        return FakeCompletedProcess(stdout="Index up to date")
+
+    lifecycle = CodeGraphLifecycle(CodeGraphConfig(cwd=str(project)), FakeCodeGraphClient(True, True), runner)
+
+    result = lifecycle.init()
+
+    assert result["ok"] is True
+    assert result["action"] == "already_initialized"
+    assert calls == [[npx, "-y", "@colbymchenry/codegraph@0.9.9", "status"]]
+
+
+def test_sync_does_not_restart_when_output_says_up_to_date(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / ".codegraph").mkdir(parents=True)
+    client = FakeCodeGraphClient(True, True)
+
+    def runner(command: list[str], cwd: str) -> FakeCompletedProcess:
+        return FakeCompletedProcess(stdout="Index up to date")
+
+    lifecycle = CodeGraphLifecycle(CodeGraphConfig(cwd=str(project)), client, runner)
+
+    result = lifecycle.sync()
+
+    assert result["ok"] is True
+    assert result["changed"] is False
+    assert client.restart_count == 0
+
+
+def test_sync_restarts_when_process_is_not_running(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / ".codegraph").mkdir(parents=True)
+    client = FakeCodeGraphClient(True, False)
+
+    def runner(command: list[str], cwd: str) -> FakeCompletedProcess:
+        return FakeCompletedProcess(stdout="Index up to date")
+
+    lifecycle = CodeGraphLifecycle(CodeGraphConfig(cwd=str(project)), client, runner)
+
+    result = lifecycle.sync()
+
+    assert result["ok"] is True
+    assert client.restart_count == 1
+    assert result["gateway"]["process_running"] is True
+
+
+def test_cli_failure_returns_stderr_and_does_not_restart(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / ".codegraph").mkdir(parents=True)
+    client = FakeCodeGraphClient(True, True)
+
+    def runner(command: list[str], cwd: str) -> FakeCompletedProcess:
+        return FakeCompletedProcess(returncode=2, stderr="index failed")
+
+    lifecycle = CodeGraphLifecycle(CodeGraphConfig(cwd=str(project)), client, runner)
+
+    result = lifecycle.reindex()
+
+    assert result["ok"] is False
+    assert result["action"] == "reindex_failed"
+    assert result["cli"]["stderr"] == "index failed"
+    assert client.restart_count == 0
