@@ -6,9 +6,20 @@
 [![MCP](https://img.shields.io/badge/MCP-native-purple)](https://modelcontextprotocol.io/)
 [![中文文档](https://img.shields.io/badge/docs-中文-blue)](README.zh-CN.md)
 
-**Fully local, MCP-integrated RAG system for C/C++ SDK documentation retrieval.**
+**Local-first MCP server for C/C++ SDK documentation retrieval, with optional source code knowledge via CodeGraph gateway.**
 
-A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation (Doxygen HTML, PDFs, C++ headers) and exposes hybrid search via an MCP (Model Context Protocol) server — enabling AI coding assistants like Claude Code to retrieve precise API documentation on demand.
+A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation (Doxygen HTML, PDFs, C++ headers) and exposes search via an MCP (Model Context Protocol) server — enabling AI coding assistants like Claude Code to retrieve precise API documentation on demand. Deploy it standalone for doc-only search, or via the gateway to combine documentation with source code analysis.
+
+## Deployment Modes
+
+mcp-doc-rag offers two deployment modes. Choose based on whether you need source code analysis alongside documentation.
+
+| Mode | Command | What You Get | Requirements |
+|------|---------|-------------|--------------|
+| **Doc-RAG** (standalone) | `python -m rag server` | 11 doc search tools — hybrid BM25+vector retrieval, O(1) symbol lookup, context builder | Python 3.11+, Ollama |
+| **Gateway** (doc + code) | `python -m rag gateway` | All doc tools + `smart_search` (code→doc mapping) + CodeGraph lifecycle management | Python 3.11+, Ollama, Node.js/npm |
+
+The gateway includes everything Doc-RAG provides. If you only need documentation search, standalone Doc-RAG is all you need. If you also want to search your C/C++ source code and map code usages back to API docs, add CodeGraph via the gateway.
 
 ## Why mcp-doc-rag
 
@@ -19,6 +30,7 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 - **O(1) Symbol Lookup** — Exact symbol ID lookup via in-memory hash index, bypassing full search for known API names.
 - **Incremental Indexing** — SHA1 content hashing with mtime/size pre-filter. Only re-indexes changed files. Automatically detects and cleans up chunks from deleted files.
 - **Customizable** — Add/remove document sources at runtime via MCP tools or CLI.
+- **Optional CodeGraph Integration** — When deployed via the gateway, combine documentation search with source code analysis. `smart_search` queries CodeGraph for code usages, extracts symbol names, and maps them back to API documentation — so you can ask "how is `Renderer::Initialize` used in the codebase?" and get both the implementation patterns and the reference docs in one response. If CodeGraph is not installed or fails to start, the gateway degrades gracefully to doc-only search.
 
 ## Tech Stack
 
@@ -32,6 +44,8 @@ A retrieval-augmented generation (RAG) engine that indexes C++ SDK documentation
 | PDF Extraction | `pdfplumber` |
 | HTML Parsing | `BeautifulSoup4` (Doxygen structure-aware) |
 | C++ Header Parsing | `tree-sitter-cpp` (AST-level, falls back to regex) |
+| Gateway (optional) | MCP stdio JSON-RPC, subprocess management for CodeGraph |
+| CodeGraph (optional) | `@colbymchenry/codegraph` via npx (TypeScript, external MCP server) |
 | Integration | MCP Server (stdio JSON-RPC) |
 | Config | YAML |
 
@@ -88,16 +102,6 @@ pip install -e ".[header-ast]"
 
 Without this, the system falls back to regex-based parsing which handles most cases but may be less accurate for complex C++ constructs.
 
-### Optional: CodeGraph Gateway Search
-
-The gateway can optionally combine doc search with CodeGraph code search. CodeGraph is not a Python package dependency and does not need a global install. When enabled, the gateway launches it through npm with:
-
-```bash
-npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
-```
-
-This requires Node.js with npm/npx on `PATH`. Version `0.9.9` is the current verified CodeGraph release for this gateway; update it deliberately and re-check the CodeGraph MCP contract when upgrading. The `-y` flag lets npx fetch the package automatically on first use. If CodeGraph is not configured or cannot start, the gateway degrades to doc-only search.
-
 ### GPU Acceleration (Recommended)
 
 The reranker runs ~500× faster on GPU vs CPU. Install the CUDA-enabled PyTorch:
@@ -118,6 +122,20 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 If no NVIDIA GPU is available, the default CPU PyTorch works — reranker queries will take 2-5s each instead of 5-20ms. See [Performance](#performance) for benchmarks.
 
 **Note:** The first time the reranker is used, it will automatically download the jina-reranker model (~1.1GB) from HuggingFace. This is a one-time download. The first inference call includes a ~10s JIT compilation warmup on GPU. If the reranker is unavailable (e.g., transformers version mismatch), search degrades gracefully — RRF fusion scores are used directly.
+
+### Optional: CodeGraph (for Gateway Mode)
+
+CodeGraph adds source code search to the gateway. It's not a Python dependency — the gateway launches it through npm. Skip this section if you're using standalone Doc-RAG.
+
+**Requirements:** Node.js 18+ with npm/npx on `PATH`.
+
+When enabled, the gateway runs:
+
+```bash
+npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
+```
+
+Version `0.9.9` is the current verified CodeGraph release. Update it deliberately and re-check the CodeGraph MCP contract when upgrading. The `-y` flag lets npx fetch the package automatically on first use. If CodeGraph is not configured or cannot start, the gateway degrades to doc-only search automatically.
 
 ## Quick Start
 
@@ -184,7 +202,79 @@ python -m rag status
 # Output: total_chunks, per_source breakdown, collections, symbol count
 ```
 
-### 6. Evaluate Search Quality
+### 6. Start the MCP Server
+
+Start the standalone doc-rag MCP server and connect it to Claude Code. Create `.mcp.json` at your project root:
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag.server"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Code and use `/mcp` to verify the server is loaded. You'll have 11 doc search tools available.
+
+### Adding CodeGraph (Optional)
+
+To add source code search on top of doc search, switch to the gateway:
+
+1. Copy and edit the gateway config template:
+
+```bash
+cp src/rag/gateway.example.yaml gateway.yaml
+# Edit gateway.yaml: set doc_rag.config_path and codegraph.cwd
+```
+
+Minimal `gateway.yaml`:
+
+```yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<absolute-path-to-your-code-project>"
+```
+
+If `codegraph` is omitted or cannot start, the gateway degrades to doc-only search.
+
+2. Update `.mcp.json` to use the gateway entry point:
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag-gateway": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag", "gateway"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
+      }
+    }
+  }
+}
+```
+
+3. Build the CodeGraph index (first time only):
+
+```
+In Claude Code: "Run codegraph_init to index my code project"
+```
+
+This initializes the code knowledge graph. After that, use `smart_search` to query both code and docs at once.
+
+### 7. Evaluate Search Quality
 
 ```bash
 # 1. Copy and annotate the template with your own chunk_ids
@@ -290,82 +380,16 @@ index_batch_size: 500
 
 ## MCP Server Integration
 
-mcp-doc-rag is an MCP server — AI coding assistants can call its tools directly.
+The `.mcp.json` configuration is covered in [Quick Start](#6-start-the-mcp-server). Here's a reference of all available tools and example usage.
 
-### Configuration for Claude Code
+### Doc-RAG Tools (Standalone & Gateway)
 
-Create `.mcp.json` at your **project root** (the directory where you run `claude`). This is the recommended approach — `.mcp.json` is the dedicated MCP configuration file, and `settings.local.json` no longer supports `mcpServers`.
-
-```json
-{
-  "mcpServers": {
-    "mcp-doc-rag": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "rag.server"],
-      "cwd": "<absolute-path-to-mcp-doc-rag>",
-      "env": {
-        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
-      }
-    }
-  }
-}
-```
-
-Replace paths with the absolute path to your cloned repository. Use forward slashes even on Windows.
-
-To use the CodeGraph gateway server, point the MCP entry at the gateway CLI:
-
-```json
-{
-  "mcpServers": {
-    "mcp-doc-rag-gateway": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "rag", "gateway"],
-      "cwd": "<absolute-path-to-mcp-doc-rag>",
-      "env": {
-        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
-      }
-    }
-  }
-}
-```
-
-Copy `src/rag/gateway.example.yaml` to `gateway.yaml`, then fill in the paths. Minimal shape:
-
-```yaml
-doc_rag:
-  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
-codegraph:
-  command: "npx"
-  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
-  cwd: "<absolute-path-to-code-project>"
-```
-
-If `codegraph` is omitted or cannot start, `smart_search` degrades to doc-only search.
-
-**Alternative scopes** (choose based on your needs):
-
-| Scope | File Location | Use Case |
-|-------|--------------|----------|
-| **project** (recommended) | `.mcp.json` at project root | Team-shared, commit to version control |
-| **user** | `~/.claude/mcp.json` | Personal tools available across all projects |
-| **local** | `~/.config/claude/mcp.json` | Machine-specific configs, local credentials |
-
-After configuration, restart Claude Code. Use `/mcp` to verify the server is loaded.
-
-### Available MCP Tools
+These tools are available in both standalone Doc-RAG and gateway mode:
 
 | Tool | Description |
 |------|-------------|
 | `find_symbol` | O(1) exact symbol lookup by symbol_id |
-| `codegraph_init` | Gateway-only CodeGraph initialization for the configured code project |
-| `codegraph_reindex` | Gateway-only full CodeGraph index rebuild |
-| `codegraph_sync` | Gateway-only incremental CodeGraph sync |
-| `codegraph_index_status` | Gateway-only CodeGraph index and subprocess health status |
-| `codegraph_restart` | Gateway-only restart for the CodeGraph MCP subprocess |
-| `search_docs` | Full hybrid search pipeline |
+| `search_docs` | Full hybrid search pipeline (BM25+vector→RRF→reranker→boost→expand) |
 | `get_api_class` | Get complete class documentation with members |
 | `get_api_function` | Get complete function documentation |
 | `list_modules` | List all known sub-module names |
@@ -375,6 +399,41 @@ After configuration, restart Claude Code. Use `/mcp` to verify the server is loa
 | `list_doc_sources` | List all registered sources |
 | `reindex` | Incremental reindex (per-source or all) |
 | `index_status` | Aggregate index statistics |
+
+### Gateway-Only Tools
+
+These additional tools are available in gateway mode. CodeGraph lifecycle tools are present only when CodeGraph is configured in `gateway.yaml`.
+
+| Tool | Description |
+|------|-------------|
+| `smart_search` | Flagship gateway tool: queries CodeGraph for code usages, extracts symbols, maps them to doc-rag API docs, returns merged code + doc results |
+| `codegraph_init` | Initialize and build the first CodeGraph index for the configured project |
+| `codegraph_reindex` | Full CodeGraph index rebuild (with optional `--force`) |
+| `codegraph_sync` | Incremental CodeGraph sync — restarts the subprocess if changes detected |
+| `codegraph_index_status` | CodeGraph index health + gateway subprocess health |
+| `codegraph_restart` | Restart the CodeGraph MCP subprocess |
+
+In gateway mode, CodeGraph's native tools are also dynamically exposed alongside these gateway tools.
+
+### smart_search Flow (Gateway Only)
+
+`smart_search` orchestrates a two-phase search:
+
+```
+User query: "How is Renderer::Initialize called in practice?"
+    │
+    ├─[1] Query CodeGraph for code usages
+    │      └─ If CodeGraph unavailable: degrade to doc-only search
+    ├─[2] Extract symbol names from CodeGraph results
+    │      (recursive JSON scan + Markdown heading parse)
+    ├─[3] Normalize and probe doc-rag SymbolIndex
+    │      (exact match → template-strip → unqualified member)
+    ├─[4] Fetch docs for matched API symbols via search_docs
+    └─[5] Return merged result:
+           code_usages + matched_api_symbols + unmatched_code_symbols + doc_results
+```
+
+The response includes `degraded: true` and a warning when CodeGraph is unavailable, so the client always knows what data source was used.
 
 ### Example Claude Code Usage
 
@@ -388,6 +447,52 @@ Claude internally calls:
 
 User gets a precise answer with code examples from the actual SDK docs.
 ```
+
+With gateway + CodeGraph:
+
+```
+User: "Show me how Renderer::Initialize is used in the codebase,
+       and what the docs say about its parameters."
+
+Claude calls:
+  smart_search("Renderer::Initialize usage patterns", top_k=10)
+  → code_usages: [3 code locations calling Initialize]
+  → matched_api_symbols: ["MySDK::Renderer::Initialize"]
+  → doc_results: [signature, parameter docs, return type, examples]
+```
+
+### Configuration Scopes
+
+| Scope | File Location | Use Case |
+|-------|--------------|----------|
+| **project** (recommended) | `.mcp.json` at project root | Team-shared, commit to version control |
+| **user** | `~/.claude/mcp.json` | Personal tools available across all projects |
+| **local** | `~/.config/claude/mcp.json` | Machine-specific configs, local credentials |
+
+After configuration, restart Claude Code. Use `/mcp` to verify the server is loaded.
+
+### Gateway Configuration Reference
+
+Full `gateway.yaml` reference (see also `src/rag/gateway.example.yaml`):
+
+```yaml
+# Path to the doc-rag config.yaml (required)
+# If omitted, falls back to RAG_CONFIG_PATH env var or ./config.yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+
+# Optional CodeGraph MCP server. Omit this section for doc-only gateway mode.
+codegraph:
+  command: "npx"                                          # CodeGraph launcher
+  args:                                                   # args passed to command
+    - "-y"                                                # auto-fetch package
+    - "@colbymchenry/codegraph@0.9.9"                     # pinned version
+    - "serve"                                             # MCP serve mode
+    - "--mcp"                                             # stdio JSON-RPC
+  cwd: "<absolute-path-to-code-project>"                  # project to index
+```
+
+If `codegraph` is omitted or the subprocess fails to start, the gateway operates in doc-only mode — all doc tools work normally, `smart_search` returns doc results with `degraded: true`.
 
 ## Document Format Support
 
@@ -644,31 +749,19 @@ The test suite is organized into numbered stages — run them in order to verify
 ### Quick Run
 
 ```bash
-# Stages 1–7: pure unit + file-crawler tests (no Ollama needed)
-pytest tests/test_01_config.py tests/test_02_source_manager.py \
-       tests/test_03_symbol_index.py tests/test_04_parser.py \
-       tests/test_05_chunker.py tests/test_06_context_builder.py \
-       tests/test_07_crawler.py -v
+# All tests (skip slow E2E)
+pytest tests/ -q -k "not slow"
 
-# Stage 8: embedding + embedding cache (needs Ollama running)
-pytest tests/test_08_embedder.py -v
+# Everything including slow E2E
+pytest tests/ -q
 
-# Stage 9: search pipeline + RRF weighting + BM25 persistence
+# Run a single stage
 pytest tests/test_09_search.py -v
 
-# Stage 10: query rewrite unit tests
-pytest tests/test_10_query_rewriter.py -v
-
-# Stage 11: full end-to-end (slow — needs everything)
-pytest tests/test_11_e2e.py -v -m slow
-
-# Stage 14-18: gateway config, backend, server, CLI, and CodeGraph lifecycle
+# Gateway-specific stages
 pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
        tests/test_16_gateway_server.py tests/test_17_gateway_cli.py \
        tests/test_18_gateway_lifecycle.py -v
-
-# Run everything except slow E2E
-pytest tests/ -v -k "not slow"
 ```
 
 ### Stage Reference
@@ -693,6 +786,7 @@ pytest tests/ -v -k "not slow"
 | 16 | `test_16_gateway_server.py` | Gateway MCP stdio request handling and tool list assembly | None |
 | 17 | `test_17_gateway_cli.py` | `rag gateway` CLI dispatch and existing CLI path preservation | None |
 | 18 | `test_18_gateway_lifecycle.py` | CodeGraph lifecycle CLI command construction, status, init, reindex, sync, restart | None |
+| 19 | `test_19_pytest_config.py` | Pytest basetemp/cache_dir project configuration | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 

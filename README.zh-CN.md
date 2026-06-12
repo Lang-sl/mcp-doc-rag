@@ -6,9 +6,20 @@
 [![MCP](https://img.shields.io/badge/MCP-native-purple)](https://modelcontextprotocol.io/)
 [![English Docs](https://img.shields.io/badge/docs-English-blue)](README.md)
 
-**完全本地化、MCP 集成的 C/C++ SDK 文档 RAG 检索系统。**
+**本地优先的 C/C++ SDK 文档检索 MCP 服务器，可选通过 CodeGraph 网关扩展源代码知识。**
 
-一套检索增强生成（RAG）引擎，可索引 C++ SDK 文档（Doxygen HTML、PDF、C++ 头文件），并通过 MCP（Model Context Protocol）服务器暴露混合搜索能力——让 Claude Code 等 AI 编程助手能够按需检索精确的 API 文档。
+一套检索增强生成（RAG）引擎，可索引 C++ SDK 文档（Doxygen HTML、PDF、C++ 头文件），并通过 MCP（Model Context Protocol）服务器暴露搜索能力——让 Claude Code 等 AI 编程助手能够按需检索精确的 API 文档。可以单独部署（纯文档搜索），也可通过网关模式将文档与源代码分析结合使用。
+
+## 部署模式
+
+mcp-doc-rag 提供两种部署模式。根据是否需要源代码分析来选择。
+
+| 模式 | 命令 | 提供的工具 | 环境要求 |
+|------|------|-----------|----------|
+| **Doc-RAG**（独立模式） | `python -m rag server` | 11 个文档搜索工具——混合 BM25+向量检索、O(1) 符号查找、上下文构建器 | Python 3.11+, Ollama |
+| **Gateway**（文档+代码） | `python -m rag gateway` | 所有文档工具 + `smart_search`（代码→文档映射）+ CodeGraph 生命周期管理 | Python 3.11+, Ollama, Node.js/npm |
+
+网关包含独立 Doc-RAG 的全部功能。如果你只需要文档搜索，独立 Doc-RAG 就足够了。如果你想同时搜索 C/C++ 源代码并将代码使用情况映射回 API 文档，则通过网关添加 CodeGraph。
 
 ## 为什么选择 mcp-doc-rag
 
@@ -19,6 +30,7 @@
 - **O(1) 符号查找** — 通过内存哈希索引精确定位符号，对已知 API 名称绕过全量搜索。
 - **增量索引** — SHA1 内容哈希 + mtime/size 预过滤。仅重新索引变更文件。自动检测并清理已删除文件的残留 chunk。
 - **可定制** — 通过 MCP 工具或 CLI 在运行时添加/移除文档源。
+- **可选 CodeGraph 集成** — 通过网关模式将文档搜索与源代码分析结合。`smart_search` 查询 CodeGraph 获取代码使用情况，提取符号名，并映射回 API 文档——这样你可以问"`Renderer::Initialize` 在代码库中如何使用？"并在一次查询中同时获得实现模式和参考文档。如果未安装 CodeGraph 或启动失败，网关会自动降级为纯文档搜索。
 
 ## 技术栈
 
@@ -32,6 +44,8 @@
 | PDF 提取 | `pdfplumber` |
 | HTML 解析 | `BeautifulSoup4`（Doxygen 结构感知） |
 | C++ 头文件解析 | `tree-sitter-cpp`（AST 级别，不可用时回退正则） |
+| 网关（可选） | MCP stdio JSON-RPC，CodeGraph 子进程管理 |
+| CodeGraph（可选） | `@colbymchenry/codegraph` 通过 npx 启动（TypeScript，外部 MCP 服务器） |
 | 集成 | MCP Server（stdio JSON-RPC） |
 | 配置 | YAML |
 
@@ -88,16 +102,6 @@ pip install -e ".[header-ast]"
 
 未安装时，系统回退到基于正则表达式的解析，适用于大多数情况但对复杂 C++ 结构可能不够精确。
 
-### 可选：CodeGraph Gateway 搜索
-
-Gateway 可以选择性地将文档搜索与 CodeGraph 代码搜索结合。CodeGraph 不是 Python 包依赖，也不需要全局安装。启用后，gateway 会通过 npm 启动：
-
-```bash
-npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
-```
-
-这要求 Node.js 以及 npm/npx 位于 `PATH` 中。版本 `0.9.9` 是当前针对 gateway 验证过的 CodeGraph 发布版；升级时应显式更新版本并重新检查 CodeGraph MCP 契约。`-y` 允许 npx 在首次使用时自动拉取包。如果未配置 CodeGraph 或启动失败，gateway 会降级为仅文档搜索。
-
 ### GPU 加速（推荐）
 
 Reranker 在 GPU 上比 CPU 快约 500 倍。安装 CUDA 版 PyTorch：
@@ -118,6 +122,20 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 如果没有 NVIDIA 显卡，CPU 版 PyTorch 也可以工作——reranker 每次查询约 2-5 秒（GPU 仅需 5-20ms）。详见[性能](#性能)基准测试。
 
 **注意：** 首次使用重排序器时，会自动从 HuggingFace 下载 jina-reranker 模型（~1.1GB）。这是一次性下载。GPU 上首次推理调用包含约 10s 的 JIT 编译预热。如果重排序器不可用（例如 transformers 版本不兼容），搜索会平滑降级——直接使用 RRF 融合分数。
+
+### 可选：CodeGraph（网关模式）
+
+CodeGraph 为网关模式增加源代码搜索能力。它不是 Python 依赖——网关通过 npm 启动它。如果只用独立 Doc-RAG，跳过此节。
+
+**环境要求：** Node.js 18+，npm/npx 在 `PATH` 中。
+
+启用后，网关会运行：
+
+```bash
+npx -y @colbymchenry/codegraph@0.9.9 serve --mcp
+```
+
+版本 `0.9.9` 是当前验证过的 CodeGraph 发布版。升级时应显式更新版本并重新检查 CodeGraph MCP 契约。`-y` 允许 npx 在首次使用时自动拉取包。如果未配置 CodeGraph 或启动失败，网关会自动降级为仅文档搜索。
 
 ## 快速开始
 
@@ -184,7 +202,79 @@ python -m rag status
 # 输出：total_chunks, 按源统计, collections 数, 符号数量
 ```
 
-### 6. 评估搜索质量
+### 6. 启动 MCP 服务器
+
+启动独立 doc-rag MCP 服务器并连接 Claude Code。在项目根目录创建 `.mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag.server"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
+      }
+    }
+  }
+}
+```
+
+重启 Claude Code，使用 `/mcp` 验证服务器已加载。你将拥有 11 个文档搜索工具。
+
+### 添加 CodeGraph（可选）
+
+要在文档搜索之上增加源代码搜索，切换到网关模式：
+
+1. 复制并编辑网关配置模板：
+
+```bash
+cp src/rag/gateway.example.yaml gateway.yaml
+# 编辑 gateway.yaml：设置 doc_rag.config_path 和 codegraph.cwd
+```
+
+最小 `gateway.yaml` 结构：
+
+```yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<absolute-path-to-your-code-project>"
+```
+
+如果省略 `codegraph` 或启动失败，网关会降级为仅文档搜索。
+
+2. 更新 `.mcp.json` 使用网关入口：
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag-gateway": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag", "gateway"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
+      }
+    }
+  }
+}
+```
+
+3. 首次使用时建立 CodeGraph 索引：
+
+```
+在 Claude Code 中："运行 codegraph_init 为我的代码项目建立索引"
+```
+
+这会初始化代码知识图谱。之后使用 `smart_search` 即可同时查询代码和文档。
+
+### 7. 评估搜索质量
 
 ```bash
 # 1. 从模板复制并标注你自己的 chunk_ids
@@ -284,82 +374,16 @@ index_batch_size: 500
 
 ## MCP 服务器集成
 
-mcp-doc-rag 是一个 MCP 服务器——AI 编程助手可以直接调用其工具。
+`.mcp.json` 的配置已在[快速开始](#6-启动-mcp-服务器)中介绍。以下是所有可用工具的参考和示例用法。
 
-### Claude Code 配置
+### Doc-RAG 工具（独立模式 & 网关通用）
 
-在**项目根目录**（运行 `claude` 的目录）创建 `.mcp.json`。这是推荐的配置方式——`.mcp.json` 是专用的 MCP 配置文件，`settings.local.json` 已不再支持 `mcpServers` 字段。
-
-```json
-{
-  "mcpServers": {
-    "mcp-doc-rag": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "rag.server"],
-      "cwd": "<absolute-path-to-mcp-doc-rag>",
-      "env": {
-        "RAG_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/config.yaml"
-      }
-    }
-  }
-}
-```
-
-将路径替换为你的仓库绝对路径。即使在 Windows 上也请使用正斜杠。
-
-如需使用 CodeGraph gateway server，将 MCP 入口指向 gateway CLI：
-
-```json
-{
-  "mcpServers": {
-    "mcp-doc-rag-gateway": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "rag", "gateway"],
-      "cwd": "<absolute-path-to-mcp-doc-rag>",
-      "env": {
-        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
-      }
-    }
-  }
-}
-```
-
-将 `src/rag/gateway.example.yaml` 复制为 `gateway.yaml` 后填入路径。最小结构：
-
-```yaml
-doc_rag:
-  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
-codegraph:
-  command: "npx"
-  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
-  cwd: "<absolute-path-to-code-project>"
-```
-
-如果省略 `codegraph` 或启动失败，`smart_search` 会降级为仅文档搜索。
-
-**其他作用域**（根据需求选择）：
-
-| 作用域 | 文件位置 | 适用场景 |
-|--------|---------|----------|
-| **project**（推荐） | 项目根目录 `.mcp.json` | 团队共享，可提交到版本控制 |
-| **user** | `~/.claude/mcp.json` | 个人工具，在所有项目中可用 |
-| **local** | `~/.config/claude/mcp.json` | 本机专属配置、本地凭据 |
-
-配置完成后，重启 Claude Code。使用 `/mcp` 验证服务器是否已加载。
-
-### 可用 MCP 工具
+这些工具在独立 Doc-RAG 和网关模式下均可用：
 
 | 工具 | 说明 |
 |------|------|
 | `find_symbol` | 按 symbol_id 精确定位（O(1)） |
-| `codegraph_init` | Gateway 专属：为已配置代码项目初始化 CodeGraph |
-| `codegraph_reindex` | Gateway 专属：完整重建 CodeGraph 索引 |
-| `codegraph_sync` | Gateway 专属：增量同步 CodeGraph |
-| `codegraph_index_status` | Gateway 专属：CodeGraph 索引及子进程健康状态 |
-| `codegraph_restart` | Gateway 专属：重启 CodeGraph MCP 子进程 |
-| `search_docs` | 完整混合搜索流程 |
+| `search_docs` | 完整混合搜索流程（BM25+向量→RRF→reranker→boost→expand） |
 | `get_api_class` | 获取完整的类文档及其成员 |
 | `get_api_function` | 获取完整的函数文档 |
 | `list_modules` | 列出所有已知的子模块名称 |
@@ -369,6 +393,41 @@ codegraph:
 | `list_doc_sources` | 列出所有已注册的文档源 |
 | `reindex` | 增量重建索引（指定源或全部） |
 | `index_status` | 汇总索引统计信息 |
+
+### 网关专属工具
+
+以下额外工具仅在网关模式下可用。CodeGraph 生命周期工具仅在 `gateway.yaml` 中配置了 CodeGraph 时出现。
+
+| 工具 | 说明 |
+|------|------|
+| `smart_search` | 网关旗舰工具：查询 CodeGraph 获取代码使用情况，提取符号，映射到 doc-rag API 文档，返回合并的代码+文档结果 |
+| `codegraph_init` | 为已配置项目初始化并构建首个 CodeGraph 索引 |
+| `codegraph_reindex` | 完整重建 CodeGraph 索引（支持 `--force`） |
+| `codegraph_sync` | 增量同步 CodeGraph——检测到变更时自动重启子进程 |
+| `codegraph_index_status` | CodeGraph 索引健康 + 网关子进程健康状态 |
+| `codegraph_restart` | 重启 CodeGraph MCP 子进程 |
+
+网关模式下，CodeGraph 的原生工具也会动态暴露在这些网关工具旁边。
+
+### smart_search 流程（仅网关）
+
+`smart_search` 编排两阶段搜索：
+
+```
+用户查询："Renderer::Initialize 在代码中如何被调用？"
+    │
+    ├─[1] 查询 CodeGraph 获取代码使用情况
+    │      └─ 如果 CodeGraph 不可用：降级为纯文档搜索
+    ├─[2] 从 CodeGraph 结果中提取符号名称
+    │      （递归 JSON 扫描 + Markdown 标题解析）
+    ├─[3] 规范化并在 doc-rag SymbolIndex 中查找
+    │      （精确匹配 → 模板参数剥离 → 非限定成员名）
+    ├─[4] 对匹配的 API 符号执行 search_docs
+    └─[5] 返回合并结果：
+           code_usages + matched_api_symbols + unmatched_code_symbols + doc_results
+```
+
+当 CodeGraph 不可用时，响应包含 `degraded: true` 和警告信息，客户端始终知道实际使用的数据源。
 
 ### Claude Code 使用示例
 
@@ -382,6 +441,51 @@ Claude 内部调用：
 
 用户得到来自实际 SDK 文档的精确答案及代码示例。
 ```
+
+使用网关 + CodeGraph：
+
+```
+用户："展示 Renderer::Initialize 在代码库中如何使用，以及文档对其参数的说明。"
+
+Claude 调用：
+  smart_search("Renderer::Initialize usage patterns", top_k=10)
+  → code_usages: [3 处调用 Initialize 的代码位置]
+  → matched_api_symbols: ["MySDK::Renderer::Initialize"]
+  → doc_results: [签名、参数文档、返回类型、示例]
+```
+
+### 配置作用域
+
+| 作用域 | 文件位置 | 适用场景 |
+|--------|---------|----------|
+| **project**（推荐） | 项目根目录 `.mcp.json` | 团队共享，可提交到版本控制 |
+| **user** | `~/.claude/mcp.json` | 个人工具，在所有项目中可用 |
+| **local** | `~/.config/claude/mcp.json` | 本机专属配置、本地凭据 |
+
+配置完成后，重启 Claude Code。使用 `/mcp` 验证服务器是否已加载。
+
+### 网关配置参考
+
+完整 `gateway.yaml` 参考（另见 `src/rag/gateway.example.yaml`）：
+
+```yaml
+# doc-rag config.yaml 路径（必填）
+# 如果省略，则回退到 RAG_CONFIG_PATH 环境变量或 ./config.yaml
+doc_rag:
+  config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+
+# 可选 CodeGraph MCP 服务器。省略此节进入纯文档网关模式。
+codegraph:
+  command: "npx"                                          # CodeGraph 启动器
+  args:                                                   # 传递给 command 的参数
+    - "-y"                                                # 自动拉取包
+    - "@colbymchenry/codegraph@0.9.9"                     # 锁定版本
+    - "serve"                                             # MCP 服务模式
+    - "--mcp"                                             # stdio JSON-RPC
+  cwd: "<absolute-path-to-code-project>"                  # 待索引的项目
+```
+
+如果省略 `codegraph` 或子进程启动失败，网关以纯文档模式运行——所有文档工具正常工作，`smart_search` 返回文档结果并标注 `degraded: true`。
 
 ## 文档格式支持
 
@@ -628,31 +732,19 @@ Ollama /api/chat → qwen2.5:3b
 ### 快速运行
 
 ```bash
-# 阶段 1-7：纯单元 + 文件爬虫测试（无需 Ollama）
-pytest tests/test_01_config.py tests/test_02_source_manager.py \
-       tests/test_03_symbol_index.py tests/test_04_parser.py \
-       tests/test_05_chunker.py tests/test_06_context_builder.py \
-       tests/test_07_crawler.py -v
+# 全部测试（跳过慢速端到端）
+pytest tests/ -q -k "not slow"
 
-# 阶段 8：嵌入 + 嵌入缓存（需要 Ollama 运行）
-pytest tests/test_08_embedder.py -v
+# 含慢速 E2E 在内的全部测试
+pytest tests/ -q
 
-# 阶段 9：搜索流水线 + 加权 RRF + BM25 持久化
+# 运行单个阶段
 pytest tests/test_09_search.py -v
 
-# 阶段 10：查询改写单元测试
-pytest tests/test_10_query_rewriter.py -v
-
-# 阶段 11：完整端到端（较慢——需要所有环境）
-pytest tests/test_11_e2e.py -v -m slow
-
-# 阶段 14-18：gateway 配置、后端、server、CLI 与 CodeGraph 生命周期
+# 网关专属阶段
 pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
        tests/test_16_gateway_server.py tests/test_17_gateway_cli.py \
        tests/test_18_gateway_lifecycle.py -v
-
-# 运行除慢速端到端测试外的全部测试
-pytest tests/ -v -k "not slow"
 ```
 
 ### 阶段参考
@@ -677,6 +769,7 @@ pytest tests/ -v -k "not slow"
 | 16 | `test_16_gateway_server.py` | Gateway MCP stdio 请求处理与工具列表组装 | 无 |
 | 17 | `test_17_gateway_cli.py` | `rag gateway` CLI 分发与既有 CLI 路径保持 | 无 |
 | 18 | `test_18_gateway_lifecycle.py` | CodeGraph 生命周期 CLI 命令构建、状态查询、初始化、重建索引、同步、重启 | 无 |
+| 19 | `test_19_pytest_config.py` | Pytest basetemp/cache_dir 项目配置 | 无 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
