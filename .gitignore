@@ -40,6 +40,9 @@ tests/eval/baseline.txt
 # Ollama models (large, downloaded separately)
 ollama_models/
 
+# Claude Code project guidance (local only)
+CLAUDE.md
+
 # Brainstorming companion artifacts
 .superpowers/
 docs/
