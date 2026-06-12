@@ -305,7 +305,7 @@ def test_create_tools_wires_gateway_dependencies(monkeypatch):
             return True
 
     class FakeGatewayTools:
-        def __init__(self, doc_backend, codegraph_client):
+        def __init__(self, doc_backend, codegraph_client, codegraph_lifecycle=None):
             created["gateway_tools_args"] = (doc_backend, codegraph_client)
             self.doc_backend = doc_backend
             self.codegraph_client = codegraph_client
@@ -340,7 +340,7 @@ def test_create_tools_swallows_codegraph_start_failure(monkeypatch):
             raise RuntimeError("boom")
 
     class FakeGatewayTools:
-        def __init__(self, doc_backend, codegraph_client):
+        def __init__(self, doc_backend, codegraph_client, codegraph_lifecycle=None):
             self.doc_backend = doc_backend
             self.codegraph_client = codegraph_client
 
@@ -353,6 +353,74 @@ def test_create_tools_swallows_codegraph_start_failure(monkeypatch):
 
     assert isinstance(tools.doc_backend, FakeDocRagBackend)
     assert isinstance(tools.codegraph_client, FakeCodeGraphClient)
+
+
+def test_build_tools_list_includes_lifecycle_tools_when_configured():
+    from rag.gateway.server import build_tools_list
+
+    tools = build_tools_list([], include_codegraph_lifecycle=True)
+    tool_names = [tool["name"] for tool in tools]
+
+    assert "codegraph_init" in tool_names
+    assert "codegraph_reindex" in tool_names
+    assert "codegraph_sync" in tool_names
+    assert "codegraph_index_status" in tool_names
+    assert "codegraph_restart" in tool_names
+
+    reindex_tool = next(tool for tool in tools if tool["name"] == "codegraph_reindex")
+    assert reindex_tool["inputSchema"]["properties"]["force"] == {"type": "boolean", "default": False}
+
+
+def test_build_tools_list_omits_lifecycle_tools_without_codegraph_config():
+    from rag.gateway.server import build_tools_list
+
+    tools = build_tools_list([], include_codegraph_lifecycle=False)
+    tool_names = [tool["name"] for tool in tools]
+
+    assert "codegraph_init" not in tool_names
+    assert "codegraph_index_status" not in tool_names
+
+
+def test_create_tools_wires_codegraph_lifecycle(monkeypatch):
+    from rag.gateway import server
+
+    created: dict[str, object] = {}
+    config = SimpleNamespace(codegraph="codegraph-config", doc_rag_config_path=None)
+
+    class FakeDocRagBackend:
+        def __init__(self, config_path=None):
+            self.config_path = config_path
+
+    class FakeCodeGraphClient:
+        def __init__(self, config_value):
+            self.config = config_value
+            self.tools = []
+            self.tool_names = []
+
+        def start(self):
+            return False
+
+    class FakeLifecycle:
+        def __init__(self, config_value, client):
+            created["lifecycle_args"] = (config_value, client)
+
+    class FakeGatewayTools:
+        def __init__(self, doc_backend, codegraph_client, codegraph_lifecycle):
+            self.doc_backend = doc_backend
+            self.codegraph_client = codegraph_client
+            self.codegraph_lifecycle = codegraph_lifecycle
+            created["gateway_tools_args"] = (doc_backend, codegraph_client, codegraph_lifecycle)
+
+    monkeypatch.setattr(server, "load_gateway_config", lambda config_path=None: config)
+    monkeypatch.setattr(server, "DocRagBackend", FakeDocRagBackend)
+    monkeypatch.setattr(server, "CodeGraphClient", FakeCodeGraphClient)
+    monkeypatch.setattr(server, "CodeGraphLifecycle", FakeLifecycle)
+    monkeypatch.setattr(server, "GatewayTools", FakeGatewayTools)
+
+    tools = server.create_tools()
+
+    assert created["lifecycle_args"][0] == "codegraph-config"
+    assert created["gateway_tools_args"] == (tools.doc_backend, tools.codegraph_client, tools.codegraph_lifecycle)
 
 
 def test_main_ignores_blank_and_invalid_json_lines(monkeypatch, capsys):

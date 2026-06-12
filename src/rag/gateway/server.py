@@ -7,7 +7,8 @@ from typing import Any
 from rag.gateway.codegraph_client import CodeGraphClient
 from rag.gateway.config import load_gateway_config
 from rag.gateway.doc_backend import DocRagBackend
-from rag.gateway.tools import DOC_TOOL_NAMES, GatewayTools
+from rag.gateway.tools import CODEGRAPH_LIFECYCLE_TOOL_NAMES, DOC_TOOL_NAMES, GatewayTools
+from rag.gateway.codegraph_lifecycle import CodeGraphLifecycle
 from rag.server import TOOLS
 
 
@@ -24,10 +25,41 @@ _SMART_SEARCH_TOOL = {
     },
 }
 
+_CODEGRAPH_LIFECYCLE_TOOLS = [
+    {
+        "name": "codegraph_init",
+        "description": "Initialize the configured CodeGraph project and build its first index.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "codegraph_reindex",
+        "description": "Rebuild the configured CodeGraph index.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"force": {"type": "boolean", "default": False}},
+        },
+    },
+    {
+        "name": "codegraph_sync",
+        "description": "Incrementally sync the configured CodeGraph index.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "codegraph_index_status",
+        "description": "Report configured CodeGraph index and gateway subprocess health.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "codegraph_restart",
+        "description": "Restart the configured CodeGraph MCP subprocess and reload its tools.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
 
-def build_tools_list(codegraph_tools: list[dict] | None) -> list[dict]:
+def build_tools_list(codegraph_tools: list[dict] | None, include_codegraph_lifecycle: bool = False) -> list[dict]:
     doc_tools = [tool for tool in TOOLS if tool.get("name") in DOC_TOOL_NAMES]
-    return [_SMART_SEARCH_TOOL, *doc_tools, *(codegraph_tools or [])]
+    lifecycle_tools = _CODEGRAPH_LIFECYCLE_TOOLS if include_codegraph_lifecycle else []
+    return [_SMART_SEARCH_TOOL, *doc_tools, *lifecycle_tools, *(codegraph_tools or [])]
 
 
 def handle_request(request: dict, tools_handler: GatewayTools) -> dict | None:
@@ -51,10 +83,11 @@ def handle_request(request: dict, tools_handler: GatewayTools) -> dict | None:
     if method == "tools/list":
         codegraph_client = getattr(tools_handler, "codegraph_client", None)
         codegraph_tools = getattr(codegraph_client, "tools", []) if codegraph_client is not None else []
+        codegraph_lifecycle = getattr(tools_handler, "codegraph_lifecycle", None)
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "result": {"tools": build_tools_list(codegraph_tools)},
+            "result": {"tools": build_tools_list(codegraph_tools, codegraph_lifecycle is not None)},
         }
 
     if method == "tools/call":
@@ -129,7 +162,8 @@ def create_tools(config_path: str | None = None) -> GatewayTools:
         codegraph_client.start()
     except Exception:
         pass
-    return GatewayTools(doc_backend, codegraph_client)
+    codegraph_lifecycle = CodeGraphLifecycle(config.codegraph, codegraph_client) if config.codegraph is not None else None
+    return GatewayTools(doc_backend, codegraph_client, codegraph_lifecycle)
 
 
 def main() -> None:
