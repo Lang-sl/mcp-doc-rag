@@ -78,7 +78,8 @@ rag = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=.pytest-tmp"
+addopts = "--basetemp=output/pytest-tmp"
+cache_dir = "output/pytest-cache"
 markers = [
     "slow: marks tests as slow (deselect with '-k \"not slow\"')",
 ]

@@ -169,22 +169,28 @@ def create_tools(config_path: str | None = None) -> GatewayTools:
 def main() -> None:
     tools_handler = create_tools()
 
-    for raw_line in sys.stdin:
-        line = raw_line.strip()
-        if not line:
-            continue
+    try:
+        for raw_line in sys.stdin:
+            line = raw_line.strip()
+            if not line:
+                continue
 
-        try:
-            request: dict[str, Any] = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+            try:
+                request: dict[str, Any] = json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
-        response = handle_request(request, tools_handler)
-        if response is None:
-            continue
+            response = handle_request(request, tools_handler)
+            if response is None:
+                continue
 
-        sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+    finally:
+        codegraph_client = getattr(tools_handler, "codegraph_client", None)
+        shutdown = getattr(codegraph_client, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
 
 
 if __name__ == "__main__":

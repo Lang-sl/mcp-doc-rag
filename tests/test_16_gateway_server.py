@@ -453,3 +453,24 @@ def test_main_ignores_blank_and_invalid_json_lines(monkeypatch, capsys):
             ensure_ascii=False,
         )
     ]
+
+
+def test_main_shuts_down_codegraph_client_when_stdin_ends(monkeypatch):
+    from rag.gateway import server
+
+    class FakeCodeGraphClient:
+        def __init__(self):
+            self.shutdown_called = False
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+    codegraph_client = FakeCodeGraphClient()
+    tools_handler = SimpleNamespace(codegraph_client=codegraph_client)
+
+    monkeypatch.setattr(server.sys, "stdin", [])
+    monkeypatch.setattr(server, "create_tools", lambda config_path=None: tools_handler)
+
+    server.main()
+
+    assert codegraph_client.shutdown_called is True
