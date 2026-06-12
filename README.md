@@ -360,6 +360,11 @@ After configuration, restart Claude Code. Use `/mcp` to verify the server is loa
 | Tool | Description |
 |------|-------------|
 | `find_symbol` | O(1) exact symbol lookup by symbol_id |
+| `codegraph_init` | Gateway-only CodeGraph initialization for the configured code project |
+| `codegraph_reindex` | Gateway-only full CodeGraph index rebuild |
+| `codegraph_sync` | Gateway-only incremental CodeGraph sync |
+| `codegraph_index_status` | Gateway-only CodeGraph index and subprocess health status |
+| `codegraph_restart` | Gateway-only restart for the CodeGraph MCP subprocess |
 | `search_docs` | Full hybrid search pipeline |
 | `get_api_class` | Get complete class documentation with members |
 | `get_api_function` | Get complete function documentation |
@@ -657,8 +662,10 @@ pytest tests/test_10_query_rewriter.py -v
 # Stage 11: full end-to-end (slow — needs everything)
 pytest tests/test_11_e2e.py -v -m slow
 
-# Stage 14-17: gateway config, backend, server, and CLI
-pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py tests/test_16_gateway_server.py tests/test_17_gateway_cli.py -v
+# Stage 14-18: gateway config, backend, server, CLI, and CodeGraph lifecycle
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
+       tests/test_16_gateway_server.py tests/test_17_gateway_cli.py \
+       tests/test_18_gateway_lifecycle.py -v
 
 # Run everything except slow E2E
 pytest tests/ -v -k "not slow"
@@ -685,6 +692,7 @@ pytest tests/ -v -k "not slow"
 | 15 | `test_15_gateway_tools.py` | Gateway doc backend, CodeGraph client fakes, smart search routing | None |
 | 16 | `test_16_gateway_server.py` | Gateway MCP stdio request handling and tool list assembly | None |
 | 17 | `test_17_gateway_cli.py` | `rag gateway` CLI dispatch and existing CLI path preservation | None |
+| 18 | `test_18_gateway_lifecycle.py` | CodeGraph lifecycle CLI command construction, status, init, reindex, sync, restart | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 

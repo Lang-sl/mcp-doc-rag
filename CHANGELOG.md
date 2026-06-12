@@ -18,6 +18,7 @@
 - **Gateway config template**: `src/rag/gateway.example.yaml` documents doc-rag config wiring and optional CodeGraph startup settings.
 - **Gateway setup wizard support**: `setup_config.py` can optionally create `gateway.yaml` and point it at the generated doc-rag config.
 - **Gateway test stages 14-17**: added coverage for gateway config loading, doc backend, CodeGraph client fakes, smart search routing, MCP server JSON-RPC handling, and CLI dispatch.
+- Added gateway-owned CodeGraph lifecycle MCP tools: `codegraph_init`, `codegraph_reindex`, `codegraph_sync`, `codegraph_index_status`, and `codegraph_restart`.
 
 ### Added (config)
 - `query_rewrite_enabled: true`

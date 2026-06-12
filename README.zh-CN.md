@@ -354,6 +354,11 @@ codegraph:
 | 工具 | 说明 |
 |------|------|
 | `find_symbol` | 按 symbol_id 精确定位（O(1)） |
+| `codegraph_init` | Gateway 专属：为已配置代码项目初始化 CodeGraph |
+| `codegraph_reindex` | Gateway 专属：完整重建 CodeGraph 索引 |
+| `codegraph_sync` | Gateway 专属：增量同步 CodeGraph |
+| `codegraph_index_status` | Gateway 专属：CodeGraph 索引及子进程健康状态 |
+| `codegraph_restart` | Gateway 专属：重启 CodeGraph MCP 子进程 |
 | `search_docs` | 完整混合搜索流程 |
 | `get_api_class` | 获取完整的类文档及其成员 |
 | `get_api_function` | 获取完整的函数文档 |
@@ -641,8 +646,10 @@ pytest tests/test_10_query_rewriter.py -v
 # 阶段 11：完整端到端（较慢——需要所有环境）
 pytest tests/test_11_e2e.py -v -m slow
 
-# 阶段 14-17：gateway 配置、后端、server 与 CLI
-pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py tests/test_16_gateway_server.py tests/test_17_gateway_cli.py -v
+# 阶段 14-18：gateway 配置、后端、server、CLI 与 CodeGraph 生命周期
+pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
+       tests/test_16_gateway_server.py tests/test_17_gateway_cli.py \
+       tests/test_18_gateway_lifecycle.py -v
 
 # 运行除慢速端到端测试外的全部测试
 pytest tests/ -v -k "not slow"
@@ -669,6 +676,7 @@ pytest tests/ -v -k "not slow"
 | 15 | `test_15_gateway_tools.py` | Gateway 文档后端、CodeGraph 客户端 fake、smart search 路由 | 无 |
 | 16 | `test_16_gateway_server.py` | Gateway MCP stdio 请求处理与工具列表组装 | 无 |
 | 17 | `test_17_gateway_cli.py` | `rag gateway` CLI 分发与既有 CLI 路径保持 | 无 |
+| 18 | `test_18_gateway_lifecycle.py` | CodeGraph 生命周期 CLI 命令构建、状态查询、初始化、重建索引、同步、重启 | 无 |
 
 **阶段 1-6** 即时运行（无网络，除临时文件外无磁盘 I/O）。如果有任何失败，说明存在代码或依赖问题。
 
