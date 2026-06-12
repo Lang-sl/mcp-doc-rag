@@ -21,6 +21,14 @@ DOC_TOOL_NAMES = {
 
 CODEGRAPH_SEARCH_TOOL = "codegraph_search"
 
+CODEGRAPH_LIFECYCLE_TOOL_NAMES = {
+    "codegraph_init",
+    "codegraph_reindex",
+    "codegraph_sync",
+    "codegraph_index_status",
+    "codegraph_restart",
+}
+
 _MARKDOWN_SYMBOL_HEADING = re.compile(r"^###\s+(.+?)\s+\([^)]+\)\s*$", re.MULTILINE)
 _SYMBOL_FIELDS = {"symbol", "symbol_id", "symbol_name", "qualified_name"}
 _NAME_SYMBOL_HINT_FIELDS = {
@@ -77,9 +85,10 @@ def decode_codegraph_result(result: dict) -> Any:
 
 
 class GatewayTools:
-    def __init__(self, doc_backend: Any, codegraph_client: Any | None = None) -> None:
+    def __init__(self, doc_backend: Any, codegraph_client: Any | None = None, codegraph_lifecycle: Any | None = None) -> None:
         self.doc_backend = doc_backend
         self.codegraph_client = codegraph_client
+        self.codegraph_lifecycle = codegraph_lifecycle
 
     def smart_search(self, query: str, top_k: int = 10) -> dict:
         if not self._codegraph_search_available():
@@ -128,10 +137,27 @@ class GatewayTools:
         tool_arguments = arguments or {}
         if name == "smart_search":
             return self.smart_search(**tool_arguments)
+        if name in CODEGRAPH_LIFECYCLE_TOOL_NAMES:
+            if self.codegraph_lifecycle is None:
+                raise KeyError(name)
+            return self._call_codegraph_lifecycle_tool(name, tool_arguments)
         if name in DOC_TOOL_NAMES:
             return getattr(self.doc_backend, name)(**tool_arguments)
         if self.codegraph_client is not None and name in getattr(self.codegraph_client, "tool_names", []):
             return self.codegraph_client.call_tool(name, tool_arguments)
+        raise KeyError(name)
+
+    def _call_codegraph_lifecycle_tool(self, name: str, arguments: dict) -> Any:
+        if name == "codegraph_init":
+            return self.codegraph_lifecycle.init()
+        if name == "codegraph_reindex":
+            return self.codegraph_lifecycle.reindex(force=bool(arguments.get("force", False)))
+        if name == "codegraph_sync":
+            return self.codegraph_lifecycle.sync()
+        if name == "codegraph_index_status":
+            return self.codegraph_lifecycle.index_status()
+        if name == "codegraph_restart":
+            return self.codegraph_lifecycle.restart()
         raise KeyError(name)
 
     def _codegraph_search_available(self) -> bool:

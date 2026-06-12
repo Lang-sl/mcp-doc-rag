@@ -664,3 +664,61 @@ def test_codegraph_client_restart_stops_old_process_and_loads_tools():
     assert client.restart() is True
     assert first_process.terminated is True
     assert client.tool_names == ["codegraph_files"]
+
+
+class FakeLifecycle:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def init(self) -> dict:
+        self.calls.append(("init", {}))
+        return {"ok": True, "action": "initialized"}
+
+    def reindex(self, force: bool = False) -> dict:
+        self.calls.append(("reindex", {"force": force}))
+        return {"ok": True, "action": "reindexed", "force": force}
+
+    def sync(self) -> dict:
+        self.calls.append(("sync", {}))
+        return {"ok": True, "action": "synced"}
+
+    def index_status(self) -> dict:
+        self.calls.append(("index_status", {}))
+        return {"ok": True, "index_exists": True}
+
+    def restart(self) -> dict:
+        self.calls.append(("restart", {}))
+        return {"ok": True, "action": "restarted"}
+
+
+def test_gateway_tools_routes_codegraph_lifecycle_tools():
+    from rag.gateway.tools import GatewayTools
+
+    lifecycle = FakeLifecycle()
+    tools = GatewayTools(FakeGatewayDocBackend(), FakeGatewayCodeGraphClient(), lifecycle)
+
+    assert tools.call_tool("codegraph_init", {})["action"] == "initialized"
+    assert tools.call_tool("codegraph_reindex", {"force": True})["force"] is True
+    assert tools.call_tool("codegraph_sync", {})["action"] == "synced"
+    assert tools.call_tool("codegraph_index_status", {})["index_exists"] is True
+    assert tools.call_tool("codegraph_restart", {})["action"] == "restarted"
+    assert lifecycle.calls == [
+        ("init", {}),
+        ("reindex", {"force": True}),
+        ("sync", {}),
+        ("index_status", {}),
+        ("restart", {}),
+    ]
+
+
+def test_gateway_tools_lifecycle_tools_are_absent_without_lifecycle_service():
+    from rag.gateway.tools import GatewayTools
+
+    tools = GatewayTools(FakeGatewayDocBackend(), FakeGatewayCodeGraphClient(), None)
+
+    try:
+        tools.call_tool("codegraph_init", {})
+    except KeyError as exc:
+        assert exc.args == ("codegraph_init",)
+    else:
+        raise AssertionError("codegraph_init should not route without lifecycle service")
