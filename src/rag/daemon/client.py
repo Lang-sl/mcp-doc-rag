@@ -55,7 +55,7 @@ def request_json_stdlib(method: str, url: str, token: str, payload: dict | None 
     if payload is not None:
         request.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(request, timeout=2) as response:
+        with urllib.request.urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise DaemonConnectionError(str(exc)) from exc

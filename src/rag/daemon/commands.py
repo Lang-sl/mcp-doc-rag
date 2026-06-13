@@ -101,7 +101,18 @@ def start(gateway_config_path: str, runtime_path: Path, log_path: Path | None = 
     atexit.register(_cleanup, runtime_path, _stdout, _stderr, log_file)
 
     def _handle_signal(signum: int, frame: object) -> None:
-        server.stop()
+        # Delete metadata immediately so that even on Windows (where SIGTERM
+        # maps to TerminateProcess and no further Python code runs after the
+        # handler returns) the runtime file is gone.  On POSIX the finally
+        # block below will still attempt a second delete (no-op).
+        try:
+            delete_metadata(runtime_path)
+        except Exception:
+            pass
+        try:
+            server.stop()
+        except Exception:
+            pass
 
     original_sigterm = signal.signal(signal.SIGTERM, _handle_signal)
     original_sigint = signal.signal(signal.SIGINT, _handle_signal)

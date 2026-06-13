@@ -22,7 +22,7 @@ def ensure_daemon(
     start_process: StartProcess | None = None,
     health_check: HealthCheck | None = None,
     log_path: Path | None = None,
-    wait_seconds: float = 5.0,
+    wait_seconds: float = 30.0,
 ) -> RuntimeMetadata | None:
     metadata = read_metadata(runtime_path)
     checker = health_check or _metadata_is_healthy
