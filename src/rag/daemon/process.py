@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from rag.daemon.client import DaemonClient
-from rag.daemon.runtime import RuntimeMetadata, read_metadata
+from rag.daemon.runtime import RuntimeMetadata, delete_metadata, pid_is_running, read_metadata
 
 
 StartProcess = Callable[[str, Path, Path | None], bool]
@@ -25,6 +25,15 @@ def ensure_daemon(
     wait_seconds: float = 30.0,
 ) -> RuntimeMetadata | None:
     metadata = read_metadata(runtime_path)
+
+    # If the process named in metadata is no longer running the metadata is
+    # stale — clean it up immediately.  This is the primary cleanup path on
+    # Windows where os.kill(pid, SIGTERM) maps to TerminateProcess (a hard
+    # kill that runs no Python handlers).
+    if metadata is not None and not pid_is_running(metadata.pid):
+        delete_metadata(runtime_path)
+        metadata = None
+
     checker = health_check or _metadata_is_healthy
     if metadata is not None and checker(metadata):
         return metadata

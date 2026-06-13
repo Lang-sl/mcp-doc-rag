@@ -101,10 +101,13 @@ def start(gateway_config_path: str, runtime_path: Path, log_path: Path | None = 
     atexit.register(_cleanup, runtime_path, _stdout, _stderr, log_file)
 
     def _handle_signal(signum: int, frame: object) -> None:
-        # Delete metadata immediately so that even on Windows (where SIGTERM
-        # maps to TerminateProcess and no further Python code runs after the
-        # handler returns) the runtime file is gone.  On POSIX the finally
-        # block below will still attempt a second delete (no-op).
+        # Delete metadata in the handler itself rather than relying on the
+        # finally block below.  On Windows os.kill(pid, SIGTERM) maps to
+        # TerminateProcess — a hard kill where no Python code runs after the
+        # handler returns — so the finally block is never reached.  For that
+        # case process.py:ensure_daemon() provides a second cleanup path via
+        # pid_is_running().  On POSIX and for SIGINT the handler + finally
+        # provide two independent cleanup attempts.
         try:
             delete_metadata(runtime_path)
         except Exception:

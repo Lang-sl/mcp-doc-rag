@@ -1,8 +1,42 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+
+def pid_is_running(pid: int) -> bool:
+    """Return True if a process with *pid* is currently running.
+
+    On POSIX this sends signal 0 via ``os.kill``.  On Windows it opens the
+    process handle with ``SYNCHRONIZE`` access — the closest equivalent to a
+    non-destructive liveness probe.  Both checks are near-instant and do not
+    affect the target process.
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        SYNCHRONIZE = 0x00100000
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        # ERROR_ACCESS_DENIED (5) → process exists but cannot open with
+        # SYNCHRONIZE (e.g. protected system process).  For a daemon we
+        # spawned ourselves this is extremely unlikely, but treat it as
+        # "alive" to be safe.
+        return kernel32.GetLastError() == 5
+    else:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 @dataclass(frozen=True)
