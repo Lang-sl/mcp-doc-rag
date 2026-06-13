@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from rag.daemon.config import normalize_gateway_config_path
 from rag.gateway.codegraph_client import CodeGraphClient
 from rag.gateway.codegraph_lifecycle import CodeGraphLifecycle
 from rag.gateway.config import CodeGraphConfig, GatewayConfig, load_gateway_config
@@ -49,7 +50,7 @@ class GatewayToolService:
 
     @classmethod
     def from_config_path(cls, config_path: str | None = None) -> "GatewayToolService":
-        resolved = _normalize_gateway_config_path(config_path)
+        resolved = normalize_gateway_config_path(config_path)
         config = load_gateway_config(resolved)
         return cls(config, gateway_config_path=resolved)
 
@@ -158,10 +159,3 @@ class GatewayToolService:
         available = bool(health.get("available", getattr(self.codegraph_client, "available", False)))
         state = "configured_running" if available else "configured_unavailable"
         return {"state": state, **health}
-
-
-def _normalize_gateway_config_path(config_path: str | None) -> str | None:
-    if config_path is None:
-        return None
-    import os
-    return os.path.abspath(config_path)
