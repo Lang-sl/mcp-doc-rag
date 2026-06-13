@@ -68,13 +68,13 @@ def check_ollama() -> bool:
 
 
 def configure_gateway() -> bool:
-    """Optionally create gateway.yaml for MCP gateway mode."""
-    header("CodeGraph Gateway")
-    print("\n  The gateway can combine doc-rag search with optional CodeGraph code search.")
-    print("  It requires Node.js with npm/npx on PATH when CodeGraph is enabled.")
-    print("  Leave this disabled if you only want the normal doc-rag server.\n")
+    """Optionally create gateway.yaml for daemon-backed MCP gateway mode."""
+    header("MCP Gateway")
+    print("\n  The gateway provides daemon-backed MCP access to doc-rag tools.")
+    print("  It can optionally include CodeGraph for combined doc+code search.")
+    print("  Skip this if you only want the standalone doc-rag MCP server.\n")
 
-    create = ask("Create gateway.yaml for gateway mode? (y/n)", "n")
+    create = ask("Create gateway.yaml for daemon-backed MCP gateway mode? (y/n)", "y")
     if create.lower() != "y":
         print("  Skipping gateway.yaml")
         return False
@@ -94,25 +94,34 @@ def configure_gateway() -> bool:
         gateway_config = {}
 
     gateway_config["doc_rag"] = {"config_path": str(TARGET.resolve())}
+    gateway_config["daemon"] = {
+        "autostart": True,
+        "host": "127.0.0.1",
+        "port": 0,
+    }
 
-    codegraph = gateway_config.get("codegraph")
-    if not isinstance(codegraph, dict):
-        codegraph = {}
+    enable_codegraph = ask("Enable optional CodeGraph integration? (y/n)", "n")
+    if enable_codegraph.lower() != "y":
+        gateway_config.pop("codegraph", None)
+    else:
+        codegraph = gateway_config.get("codegraph")
+        if not isinstance(codegraph, dict):
+            codegraph = {}
 
-    code_project = ask("Code project path for CodeGraph (leave blank to fill later)")
-    if code_project:
-        if not os.path.isdir(code_project):
-            print(f"  [WARN] Directory not found: {code_project}")
-            still_add = ask("  Add anyway? (y/n)", "n")
-            if still_add.lower() == "y":
+        code_project = ask("Code project path for CodeGraph (leave blank to fill later)")
+        if code_project:
+            if not os.path.isdir(code_project):
+                print(f"  [WARN] Directory not found: {code_project}")
+                still_add = ask("  Add anyway? (y/n)", "n")
+                if still_add.lower() == "y":
+                    codegraph["cwd"] = code_project
+            else:
                 codegraph["cwd"] = code_project
-        else:
-            codegraph["cwd"] = code_project
 
-    codegraph.setdefault("command", "npx")
-    codegraph.setdefault("args", ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"])
-    codegraph.setdefault("cwd", "<absolute-path-to-code-project>")
-    gateway_config["codegraph"] = codegraph
+        codegraph.setdefault("command", "npx")
+        codegraph.setdefault("args", ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"])
+        codegraph.setdefault("cwd", "<absolute-path-to-code-project>")
+        gateway_config["codegraph"] = codegraph
 
     with open(GATEWAY_TARGET, "w", encoding="utf-8") as fh:
         yaml.safe_dump(gateway_config, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
@@ -218,7 +227,11 @@ def main() -> int:
     step += 1
     print()
     if gateway_configured:
-        print(f"  {step}. Run the gateway MCP server:")
+        print(f"  {step}. Start the gateway adapter:")
+        print("     python -m rag adapter")
+        step += 1
+        print()
+        print(f"  {step}. Or use the stdio fallback:")
         print("     python -m rag gateway")
         step += 1
         print()
