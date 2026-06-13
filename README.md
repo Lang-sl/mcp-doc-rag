@@ -17,9 +17,10 @@ mcp-doc-rag offers two deployment modes. Choose based on whether you need source
 | Mode | Command | What You Get | Requirements |
 |------|---------|-------------|--------------|
 | **Doc-RAG** (standalone) | `python -m rag server` | 11 doc search tools — hybrid BM25+vector retrieval, O(1) symbol lookup, context builder | Python 3.11+, Ollama |
-| **Gateway** (doc + code) | `python -m rag gateway` | All doc tools + `smart_search` (code→doc mapping) + CodeGraph lifecycle management | Python 3.11+, Ollama, Node.js/npm |
+| **Gateway Adapter** (recommended) | `python -m rag adapter` | All doc tools + `smart_search` + CodeGraph lifecycle, daemon-backed, shared across MCP sessions | Python 3.11+, Ollama, Node.js/npm (optional) |
+| **Gateway** (direct stdio) | `python -m rag gateway` | Same tools as adapter, but one process per MCP client — fallback for compatibility | Python 3.11+, Ollama, Node.js/npm (optional) |
 
-The gateway includes everything Doc-RAG provides. If you only need documentation search, standalone Doc-RAG is all you need. If you also want to search your C/C++ source code and map code usages back to API docs, add CodeGraph via the gateway.
+The gateway adapter starts a long-lived daemon that MCP clients connect to via loopback HTTP. The daemon keeps doc-rag indexes and optional CodeGraph subprocesses alive across MCP sessions. Use `python -m rag daemon status` to check daemon health. CodeGraph is optional in all gateway modes — without it, you still get full doc-rag tools and `smart_search` with graceful degradation.
 
 ## Why mcp-doc-rag
 
@@ -226,13 +227,13 @@ Restart Claude Code and use `/mcp` to verify the server is loaded. You'll have 1
 
 ### Adding CodeGraph (Optional)
 
-To add source code search on top of doc search, switch to the gateway:
+To add source code search on top of doc search, switch to the gateway adapter (recommended) or direct gateway:
 
 1. Copy and edit the gateway config template:
 
 ```bash
 cp src/rag/gateway.example.yaml gateway.yaml
-# Edit gateway.yaml: set doc_rag.config_path and codegraph.cwd
+# Edit gateway.yaml: set doc_rag.config_path and codegraph.cwd (optional)
 ```
 
 Minimal `gateway.yaml`:
@@ -240,15 +241,20 @@ Minimal `gateway.yaml`:
 ```yaml
 doc_rag:
   config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
+# Optional CodeGraph integration. Remove this section for doc-only gateway.
 codegraph:
   command: "npx"
   args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
   cwd: "<absolute-path-to-your-code-project>"
+daemon:
+  autostart: true
+  host: "127.0.0.1"
+  port: 0
 ```
 
 If `codegraph` is omitted or cannot start, the gateway degrades to doc-only search.
 
-2. Update `.mcp.json` to use the gateway entry point:
+2. Update `.mcp.json` to use the gateway adapter (recommended) or direct gateway:
 
 ```json
 {
@@ -256,7 +262,7 @@ If `codegraph` is omitted or cannot start, the gateway degrades to doc-only sear
     "mcp-doc-rag-gateway": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "rag", "gateway"],
+      "args": ["-m", "rag", "adapter"],
       "cwd": "<absolute-path-to-mcp-doc-rag>",
       "env": {
         "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
@@ -490,9 +496,19 @@ codegraph:
     - "serve"                                             # MCP serve mode
     - "--mcp"                                             # stdio JSON-RPC
   cwd: "<absolute-path-to-code-project>"                  # project to index
+
+# Gateway daemon settings. The adapter autostarts a long-lived daemon
+# that keeps indexes and CodeGraph subprocesses alive across sessions.
+daemon:
+  autostart: true                                         # auto-start daemon when adapter connects
+  host: "127.0.0.1"                                       # loopback only
+  port: 0                                                 # 0 = OS-assigned port
+  runtime_dir: "<absolute-path-to-mcp-doc-rag>/output/runtime"  # runtime metadata + logs
 ```
 
 If `codegraph` is omitted or the subprocess fails to start, the gateway operates in doc-only mode — all doc tools work normally, `smart_search` returns doc results with `degraded: true`.
+
+Use `python -m rag daemon status` to check daemon health, `python -m rag daemon stop` to shut it down, and `python -m rag daemon reload` to pick up config changes without restarting.
 
 ## Document Format Support
 
