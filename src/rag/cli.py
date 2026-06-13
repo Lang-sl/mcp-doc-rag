@@ -133,6 +133,9 @@ def main() -> None:
     # gateway
     sub.add_parser("gateway", help="Run the gateway MCP stdio server")
 
+    # adapter
+    sub.add_parser("adapter", help="Run daemon-backed gateway MCP stdio adapter")
+
     # status
     sub.add_parser("status", help="Show index status")
 
@@ -146,6 +149,12 @@ def main() -> None:
         from rag.gateway.server import main as gateway_main
 
         gateway_main()
+        return
+
+    if args.command == "adapter":
+        from rag.adapter import main as adapter_main
+
+        adapter_main()
         return
 
     config = load_config()

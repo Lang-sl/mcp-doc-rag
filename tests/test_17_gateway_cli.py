@@ -60,3 +60,17 @@ def test_existing_source_list_command_still_uses_normal_cli_path(monkeypatch, ca
     captured = capsys.readouterr()
     assert "sdk" in captured.out
     assert "docs/sdk" in captured.out
+
+
+def test_adapter_command_dispatches_to_adapter_without_loading_doc_config(monkeypatch):
+    from rag import cli
+
+    called = {"adapter": False}
+
+    monkeypatch.setattr(cli, "load_config", lambda: (_ for _ in ()).throw(AssertionError("load_config should not run")))
+    monkeypatch.setattr("rag.adapter.main", lambda: called.__setitem__("adapter", True))
+    monkeypatch.setattr(cli.sys, "argv", ["rag", "adapter"])
+
+    cli.main()
+
+    assert called["adapter"] is True
