@@ -233,6 +233,13 @@ class DocRagBackend:
             "per_source": per_source,
         }
 
+    def health(self) -> dict:
+        return {
+            "ok": True,
+            "config_path": self.config_path,
+            "source_count": len(self.config.doc_sources),
+        }
+
     @staticmethod
     def _result_to_dict(result: SearchResult) -> dict:
         chunk = result.chunk
