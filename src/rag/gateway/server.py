@@ -62,90 +62,32 @@ def build_tools_list(codegraph_tools: list[dict] | None, include_codegraph_lifec
     return [_SMART_SEARCH_TOOL, *doc_tools, *lifecycle_tools, *(codegraph_tools or [])]
 
 
-def handle_request(request: dict, tools_handler: GatewayTools) -> dict | None:
-    request_id = request.get("id")
-    method = request.get("method")
+# Adapter that wraps GatewayTools for the shared MCP protocol helper.
+# Intentionally mirrors GatewayToolService.list_tools() logic rather than
+# coupling the direct gateway path to GatewayToolService — avoids circular
+# imports and behavioral churn.  Both call the shared build_tools_list().
+class _LegacyGatewayService:
+    def __init__(self, tools_handler: GatewayTools) -> None:
+        self.tools_handler = tools_handler
 
-    if "id" not in request and method != "initialize":
-        return None
-
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "serverInfo": {"name": "mcp-doc-rag-gateway", "version": "0.1.0"},
-                "capabilities": {"tools": {}},
-            },
-        }
-
-    if method == "initialized":
-        return None
-
-    if method == "tools/list":
-        codegraph_client = getattr(tools_handler, "codegraph_client", None)
+    def list_tools(self) -> list[dict]:
+        codegraph_client = getattr(self.tools_handler, "codegraph_client", None)
         codegraph_tools = getattr(codegraph_client, "tools", []) if codegraph_client is not None else []
-        codegraph_lifecycle = getattr(tools_handler, "codegraph_lifecycle", None)
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {"tools": build_tools_list(codegraph_tools, codegraph_lifecycle is not None)},
-        }
+        codegraph_lifecycle = getattr(self.tools_handler, "codegraph_lifecycle", None)
+        return build_tools_list(codegraph_tools, codegraph_lifecycle is not None)
 
-    if method == "tools/call":
-        params = request.get("params", {})
-        if not isinstance(params, dict):
-            return _invalid_params_response(request_id, "tools/call params must be an object")
-
-        tool_name = params.get("name", "")
-        arguments = params.get("arguments", {})
-        if not isinstance(arguments, dict):
-            return _invalid_params_response(request_id, "tools/call arguments must be an object")
-
-        try:
-            result = tools_handler.call_tool(tool_name, arguments)
-        except KeyError:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"Tool not found: {tool_name}"},
-            }
-        except Exception as exc:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32000, "message": str(exc)},
-            }
-
-        if _is_codegraph_error_result(tools_handler, tool_name, result):
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32000, "message": str(result["error"])},
-            }
-
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}]
-            },
-        }
-
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": -32601, "message": f"Method not found: {method}"},
-    }
+    def call_tool(self, name: str, arguments: dict) -> Any:
+        result = self.tools_handler.call_tool(name, arguments)
+        if _is_codegraph_error_result(self.tools_handler, name, result):
+            raise RuntimeError(str(result["error"]))
+        return result
 
 
-def _invalid_params_response(request_id: Any, message: str) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": -32602, "message": message},
-    }
+def handle_request(request: dict, tools_handler: GatewayTools) -> dict | None:
+    from rag.gateway.mcp_protocol import handle_mcp_request
+
+    service = _LegacyGatewayService(tools_handler)
+    return handle_mcp_request(request, service, "mcp-doc-rag-gateway")
 
 
 def _is_codegraph_error_result(tools_handler: GatewayTools, tool_name: str, result: Any) -> bool:
