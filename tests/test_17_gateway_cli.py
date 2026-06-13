@@ -74,3 +74,33 @@ def test_adapter_command_dispatches_to_adapter_without_loading_doc_config(monkey
     cli.main()
 
     assert called["adapter"] is True
+
+
+def test_daemon_status_command_dispatches_without_loading_doc_config(monkeypatch):
+    from rag import cli
+
+    called = {"status": False}
+
+    monkeypatch.setattr(cli, "load_config", lambda: (_ for _ in ()).throw(AssertionError("load_config should not run")))
+    monkeypatch.setattr("rag.daemon.commands.main", lambda argv=None: called.__setitem__("status", True) or 0)
+    monkeypatch.setattr(cli.sys, "argv", ["rag", "daemon", "status"])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert called["status"] is True
+
+
+def test_daemon_reload_command_dispatches_without_loading_doc_config(monkeypatch):
+    from rag import cli
+
+    called = {"reload": False}
+
+    monkeypatch.setattr(cli, "load_config", lambda: (_ for _ in ()).throw(AssertionError("load_config should not run")))
+    monkeypatch.setattr("rag.daemon.commands.main", lambda argv=None: called.__setitem__("reload", True) or 0)
+    monkeypatch.setattr(cli.sys, "argv", ["rag", "daemon", "reload"])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert called["reload"] is True

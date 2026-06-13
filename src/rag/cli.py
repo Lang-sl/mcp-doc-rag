@@ -136,6 +136,10 @@ def main() -> None:
     # adapter
     sub.add_parser("adapter", help="Run daemon-backed gateway MCP stdio adapter")
 
+    # daemon
+    p_daemon = sub.add_parser("daemon", help="Manage gateway daemon")
+    p_daemon.add_argument("daemon_args", nargs=argparse.REMAINDER)
+
     # status
     sub.add_parser("status", help="Show index status")
 
@@ -156,6 +160,11 @@ def main() -> None:
 
         adapter_main()
         return
+
+    if args.command == "daemon":
+        from rag.daemon.commands import main as daemon_main
+
+        raise SystemExit(daemon_main(args.daemon_args))
 
     config = load_config()
 
