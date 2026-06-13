@@ -85,3 +85,47 @@ def test_malformed_gateway_config_values_fall_back_to_safe_defaults(tmp_path: Pa
 
     assert config.codegraph == CodeGraphConfig()
     assert config.doc_rag_config_path is None
+
+
+def test_load_gateway_config_adds_daemon_defaults(tmp_path: Path):
+    path = tmp_path / "gateway.yaml"
+    path.write_text("doc_rag:\n  config_path: config.yaml\n", encoding="utf-8")
+
+    config = load_gateway_config(str(path))
+
+    assert config.daemon.autostart is True
+    assert config.daemon.host == "127.0.0.1"
+    assert config.daemon.port == 0
+    assert config.daemon.runtime_dir is None
+
+
+def test_load_gateway_config_reads_daemon_section(tmp_path: Path):
+    path = tmp_path / "gateway.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "daemon:",
+                "  autostart: false",
+                '  host: "127.0.0.1"',
+                "  port: 4567",
+                '  runtime_dir: "output/runtime"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_gateway_config(str(path))
+
+    assert config.daemon.autostart is False
+    assert config.daemon.host == "127.0.0.1"
+    assert config.daemon.port == 4567
+    assert config.daemon.runtime_dir == "output/runtime"
+
+
+def test_load_gateway_config_rejects_non_loopback_daemon_host(tmp_path: Path):
+    path = tmp_path / "gateway.yaml"
+    path.write_text("daemon:\n  host: 0.0.0.0\n", encoding="utf-8")
+
+    config = load_gateway_config(str(path))
+
+    assert config.daemon.host == "127.0.0.1"

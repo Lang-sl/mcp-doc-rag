@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import yaml
 
 _DEFAULT_CODEGRAPH_ARGS = ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 @dataclass(frozen=True)
@@ -16,9 +17,18 @@ class CodeGraphConfig:
 
 
 @dataclass(frozen=True)
+class DaemonConfig:
+    autostart: bool = True
+    host: str = "127.0.0.1"
+    port: int = 0
+    runtime_dir: str | None = None
+
+
+@dataclass(frozen=True)
 class GatewayConfig:
     codegraph: CodeGraphConfig | None = None
     doc_rag_config_path: str | None = None
+    daemon: DaemonConfig = field(default_factory=DaemonConfig)
 
 
 def load_gateway_config(path: str | None = None) -> GatewayConfig:
@@ -59,4 +69,33 @@ def load_gateway_config(path: str | None = None) -> GatewayConfig:
         if not isinstance(doc_rag_config_path, str):
             doc_rag_config_path = None
 
-    return GatewayConfig(codegraph=codegraph, doc_rag_config_path=doc_rag_config_path)
+    return GatewayConfig(codegraph=codegraph, doc_rag_config_path=doc_rag_config_path, daemon=_load_daemon_config(loaded.get("daemon")))
+
+
+
+def _load_daemon_config(data: object) -> DaemonConfig:
+    if not isinstance(data, dict):
+        return DaemonConfig()
+
+    autostart = data.get("autostart", True)
+    if not isinstance(autostart, bool):
+        autostart = True
+
+    host = data.get("host", "127.0.0.1")
+    if not isinstance(host, str) or host not in _LOOPBACK_HOSTS:
+        host = "127.0.0.1"
+
+    port = data.get("port", 0)
+    if not isinstance(port, int) or not (0 <= port <= 65535):
+        port = 0
+
+    runtime_dir = data.get("runtime_dir")
+    if not isinstance(runtime_dir, str) or not runtime_dir.strip():
+        runtime_dir = None
+
+    return DaemonConfig(
+        autostart=autostart,
+        host=host,
+        port=port,
+        runtime_dir=runtime_dir,
+    )
