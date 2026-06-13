@@ -3,8 +3,15 @@
 ## [Unreleased]
 
 ### Added
-- Evaluation system: `python -m rag eval` CLI with Recall@K, MRR, NDCG@K metrics and latency percentiles
-- Query Rewrite (rule-based): domain synonym-based query expansion for BM25 search, improving recall for natural-language queries
+- **Gateway daemon mode**: long-lived HTTP daemon (`rag daemon start`) that keeps doc-rag indexes and optional CodeGraph subprocesses alive across MCP client sessions
+- **Gateway stdio adapter** (`rag adapter`): thin MCP stdio entry point that autostarts the daemon by default and forwards requests over loopback HTTP with runtime token auth
+- **Daemon CLI commands**: `rag daemon start|stop|status|reload` for managing the gateway daemon lifecycle
+- **Runtime metadata**: per-daemon JSON metadata files under `output/runtime/` with token-safe status formatting (token hidden from CLI output)
+- **Daemon config section** in `gateway.yaml`: `daemon.autostart`, `daemon.host`, `daemon.port`, `daemon.runtime_dir`
+- **Gateway tool service boundary** (`GatewayToolService`): shared by daemon and direct gateway, with build-then-swap config reload and graceful CodeGraph degradation
+- **Shared MCP protocol helper**: extracted JSON-RPC handling used by both direct gateway and adapter
+- **Setup flow**: `setup_config.py` generates daemon-ready gateway config with optional CodeGraph (default disabled)
+- Gateway daemon test stages 20-26: gateway service, MCP protocol, daemon config/runtime, HTTP server, client/process, adapter, setup config
 - `tests/eval/queries.jsonl`: annotated query evaluation dataset (108 queries: 35 API lookups + 73 natural language)
 - **BM25-Vector weighted RRF fusion**: BM25 contribution weight configurable via `rrf_bm25_weight` (default 2.0). Improves Recall@1 for API/symbol name queries by prioritizing exact keyword matches over semantic similarity.
 - **Embedding cache**: disk-based cache keyed by `sha256(embed_text + model)`, skipping redundant Ollama embedding computation on incremental reindex. Cache-hit reindex embed phase drops from 1-2 minutes to near-instant.
@@ -13,13 +20,19 @@
 - **Context-aware reranker candidate selection**: prioritize API chunk types (function/class/enum/macro/typedef) in reranker input, reducing max candidates from 40 to 30 (configurable via `reranker_max_candidates`). Narrative chunks fill remaining slots only when API types are exhausted.
 - **File deletion auto-cleanup**: reindex detects files deleted from source directories and automatically removes stale chunks from ChromaDB, the symbol index, and the index state file.
 - **Header AST chunking**: tree-sitter-cpp based C++ header parsing replaces regex heuristics, providing accurate extraction of complex templates, nested classes, macros, typedefs, and `using` declarations. Falls back to regex when tree-sitter is not installed.
+- **CodeGraph gateway MCP server**: optional gateway that combines doc-rag tools with runtime CodeGraph MCP tools and `smart_search` code-to-doc matching. CodeGraph is launched through pinned `npx -y @colbymchenry/codegraph@0.9.9 serve --mcp` and degrades to doc-only search when unavailable.
+- **Gateway CLI entrypoint**: `python -m rag gateway` / `rag gateway` starts the gateway stdio MCP server without loading the normal doc-rag config first.
+- **Gateway config template**: `src/rag/gateway.example.yaml` documents doc-rag config wiring and optional CodeGraph startup settings.
+- **Gateway setup wizard support**: `setup_config.py` can optionally create `gateway.yaml` and point it at the generated doc-rag config.
+- **Gateway test stages 14-17**: added coverage for gateway config loading, doc backend, CodeGraph client fakes, smart search routing, MCP server JSON-RPC handling, and CLI dispatch.
+- Added gateway-owned CodeGraph lifecycle MCP tools: `codegraph_init`, `codegraph_reindex`, `codegraph_sync`, `codegraph_index_status`, and `codegraph_restart`.
 
 ### Added (config)
 - `query_rewrite_enabled: true`
 - `query_rewrite_max_variants: 3`
 - `rrf_bm25_weight: 2.0`
-- `embedding_cache_dir: ./chroma_db/embedding_cache`
-- `bm25_cache_dir: ./chroma_db/bm25_cache`
+- `embedding_cache_dir: ./output/chroma_db/embedding_cache`
+- `bm25_cache_dir: ./output/chroma_db/bm25_cache`
 - `reranker_score_gap_threshold: 0.15`
 - `reranker_max_candidates: 30`
 
@@ -40,6 +53,7 @@
 - `tree-sitter` and `tree-sitter-cpp` (optional, for C++ header AST parsing). Install with `pip install ".[header-ast]"`.
 
 ### Changed
+- CodeGraph gateway client now passes the project `rootUri` during MCP initialization and resolves `npx` to `npx.cmd` on Windows, allowing setup wizard generated gateway configs to load CodeGraph tools correctly.
 - `HybridRetriever.search()` now accepts `enable_rewrite` parameter (default False, True for MCP server)
 - `handle_search_docs` in MCP server enables query rewrite by default
 - `Config` dataclass extended with `query_rewrite_enabled` and `query_rewrite_max_variants` fields

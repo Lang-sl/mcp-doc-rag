@@ -22,14 +22,16 @@ env/
 
 # Testing
 .pytest_cache/
+.pytest-tmp/
 .coverage
 htmlcov/
 
 # Generated output (index, cache, DB — all local)
 output/
 
-# User config (copy from config.example.yaml)
+# User config (copy from config.example.yaml / gateway.example.yaml)
 config.yaml
+gateway.yaml
 
 # Eval data (copy from template and annotate with your own chunk_ids)
 tests/eval/queries.jsonl
@@ -37,6 +39,9 @@ tests/eval/baseline.txt
 
 # Ollama models (large, downloaded separately)
 ollama_models/
+
+# Claude Code project guidance (local only)
+CLAUDE.md
 
 # Brainstorming companion artifacts
 .superpowers/

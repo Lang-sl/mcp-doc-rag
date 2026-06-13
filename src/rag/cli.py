@@ -130,6 +130,16 @@ def main() -> None:
     p_eval.add_argument("--bad-cases-only", action="store_true", help="Output only bad case analysis")
     p_eval.add_argument("--compare-rewrite", action="store_true", help="Compare LLM rewrite vs rule rewrite vs none")
 
+    # gateway
+    sub.add_parser("gateway", help="Run the gateway MCP stdio server")
+
+    # adapter
+    sub.add_parser("adapter", help="Run daemon-backed gateway MCP stdio adapter")
+
+    # daemon
+    p_daemon = sub.add_parser("daemon", help="Manage gateway daemon")
+    p_daemon.add_argument("daemon_args", nargs=argparse.REMAINDER)
+
     # status
     sub.add_parser("status", help="Show index status")
 
@@ -138,6 +148,23 @@ def main() -> None:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    if args.command == "gateway":
+        from rag.gateway.server import main as gateway_main
+
+        gateway_main()
+        return
+
+    if args.command == "adapter":
+        from rag.adapter import main as adapter_main
+
+        adapter_main()
+        return
+
+    if args.command == "daemon":
+        from rag.daemon.commands import main as daemon_main
+
+        raise SystemExit(daemon_main(args.daemon_args))
 
     config = load_config()
 

@@ -74,9 +74,12 @@ Issues = "https://github.com/Lang-sl/mcp-doc-rag/issues"
 rag = [
     "py.typed",
     "config.example.yaml",
+    "gateway.example.yaml",
 ]
 
 [tool.pytest.ini_options]
+addopts = "--basetemp=output/pytest-tmp"
+cache_dir = "output/pytest-cache"
 markers = [
     "slow: marks tests as slow (deselect with '-k \"not slow\"')",
 ]

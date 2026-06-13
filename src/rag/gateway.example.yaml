@@ -1,0 +1,19 @@
+# mcp-doc-rag Gateway Configuration
+# Copy this file to gateway.yaml and fill in your project paths.
+
+# Existing doc-rag configuration. If omitted, the gateway uses the normal
+# RAG_CONFIG_PATH/config.yaml resolution used by the doc backend.
+doc_rag:
+  config_path: "<mcp-doc-rag-root>/config.yaml"
+
+# Optional. Remove this section if you only want doc-rag tools through the gateway.
+codegraph:
+  command: "npx"
+  args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
+  cwd: "<code-project-root>"
+
+daemon:
+  autostart: true
+  host: "127.0.0.1"
+  port: 0
+  runtime_dir: "<mcp-doc-rag-root>/output/runtime"
