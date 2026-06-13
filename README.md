@@ -45,7 +45,8 @@ The gateway adapter starts a long-lived daemon that MCP clients connect to via l
 | PDF Extraction | `pdfplumber` |
 | HTML Parsing | `BeautifulSoup4` (Doxygen structure-aware) |
 | C++ Header Parsing | `tree-sitter-cpp` (AST-level, falls back to regex) |
-| Gateway (optional) | MCP stdio JSON-RPC, subprocess management for CodeGraph |
+| Gateway daemon | HTTP loopback server (stdlib `http.server`), Bearer token auth, runtime metadata |
+| Gateway adapter | MCP stdio → HTTP bridge, daemon autostart, graceful degradation |
 | CodeGraph (optional) | `@colbymchenry/codegraph` via npx (TypeScript, external MCP server) |
 | Integration | MCP Server (stdio JSON-RPC) |
 | Config | YAML |
@@ -126,7 +127,7 @@ If no NVIDIA GPU is available, the default CPU PyTorch works — reranker querie
 
 ### Optional: CodeGraph (for Gateway Mode)
 
-CodeGraph adds source code search to the gateway. It's not a Python dependency — the gateway launches it through npm. Skip this section if you're using standalone Doc-RAG.
+CodeGraph adds source code search to the gateway. It's not a Python dependency — the gateway launches it through npm. Skip this section if you're using standalone Doc-RAG or the gateway without source code analysis.
 
 **Requirements:** Node.js 18+ with npm/npx on `PATH`.
 
@@ -149,7 +150,8 @@ python setup_config.py
 This interactive script will:
 - Create `config.yaml` from the template
 - Help you add document source paths
-- Optionally create `gateway.yaml` for CodeGraph gateway search
+- Create `gateway.yaml` (for the recommended adapter deployment)
+- Optionally enable CodeGraph source code search
 - Verify Ollama is running
 
 Alternatively, copy and edit the template manually:
@@ -205,7 +207,29 @@ python -m rag status
 
 ### 6. Start the MCP Server
 
-Start the standalone doc-rag MCP server and connect it to Claude Code. Create `.mcp.json` at your project root:
+The recommended deployment is via the gateway adapter — a thin MCP stdio entry point that autostarts a long-lived daemon. The daemon keeps doc-rag indexes and optional CodeGraph subprocesses alive across MCP sessions, so multiple Claude Code windows share one warm backend.
+
+First, ensure you have a `gateway.yaml` config (the setup wizard creates one by default). Create `.mcp.json` at your project root:
+
+```json
+{
+  "mcpServers": {
+    "mcp-doc-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "rag", "adapter"],
+      "cwd": "<absolute-path-to-mcp-doc-rag>",
+      "env": {
+        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Code and use `/mcp` to verify the server is loaded. You'll have 12 doc tools (11 doc-rag + `smart_search`), plus CodeGraph tools if configured (25 tools total with a full CodeGraph setup). Use `python -m rag daemon status` to check daemon health, `python -m rag daemon stop` to shut it down.
+
+**Standalone mode** (doc-only, no daemon, no gateway features) is also available:
 
 ```json
 {
@@ -223,25 +247,15 @@ Start the standalone doc-rag MCP server and connect it to Claude Code. Create `.
 }
 ```
 
-Restart Claude Code and use `/mcp` to verify the server is loaded. You'll have 11 doc search tools available.
+This gives you the 11 core doc-rag tools without any gateway or CodeGraph dependency.
 
-### Adding CodeGraph (Optional)
+### Configuring CodeGraph
 
-To add source code search on top of doc search, switch to the gateway adapter (recommended) or direct gateway:
-
-1. Copy and edit the gateway config template:
-
-```bash
-cp src/rag/gateway.example.yaml gateway.yaml
-# Edit gateway.yaml: set doc_rag.config_path and codegraph.cwd (optional)
-```
-
-Minimal `gateway.yaml`:
+CodeGraph adds source code search to the gateway. It is optional — the gateway works as a doc-only server without it. To enable it, add a `codegraph` section to `gateway.yaml`:
 
 ```yaml
 doc_rag:
   config_path: "<absolute-path-to-mcp-doc-rag>/config.yaml"
-# Optional CodeGraph integration. Remove this section for doc-only gateway.
 codegraph:
   command: "npx"
   args: ["-y", "@colbymchenry/codegraph@0.9.9", "serve", "--mcp"]
@@ -252,33 +266,22 @@ daemon:
   port: 0
 ```
 
-If `codegraph` is omitted or cannot start, the gateway degrades to doc-only search.
-
-2. Update `.mcp.json` to use the gateway adapter (recommended) or direct gateway:
-
-```json
-{
-  "mcpServers": {
-    "mcp-doc-rag-gateway": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "rag", "adapter"],
-      "cwd": "<absolute-path-to-mcp-doc-rag>",
-      "env": {
-        "GATEWAY_CONFIG_PATH": "<absolute-path-to-mcp-doc-rag>/gateway.yaml"
-      }
-    }
-  }
-}
-```
-
-3. Build the CodeGraph index (first time only):
+Then build the CodeGraph index (first time only):
 
 ```
 In Claude Code: "Run codegraph_init to index my code project"
 ```
 
-This initializes the code knowledge graph. After that, use `smart_search` to query both code and docs at once.
+Or from the terminal:
+
+```bash
+python -m rag daemon reload  # pick up the new codegraph config
+curl -X POST http://127.0.0.1:<port>/tools/call \
+  -H "Authorization: Bearer <token>" \
+  -d '{"name":"codegraph_init","arguments":{}}'
+```
+
+After indexing, use `smart_search` to query both code and docs at once. If CodeGraph fails to start or is not configured, the gateway degrades to doc-only search — all doc tools work normally, `smart_search` returns doc results with `degraded: true`.
 
 ### 7. Evaluate Search Quality
 
@@ -757,6 +760,9 @@ Any failure (model not found, timeout, invalid JSON) transparently falls back to
 - **Ollama connection errors.** Ensure Ollama is running: `curl http://localhost:11434/api/tags`
 - **Import errors.** Run `pip install -e .` from the project directory to ensure all dependencies are installed.
 - **Symbol index is empty.** The symbol index is built after `reindex` completes. If indexing was interrupted, run `python -m rag reindex` again.
+- **Gateway daemon not running.** Run `python -m rag daemon status` to check. If the daemon is down, the adapter will autostart it on the next MCP session. Use `python -m rag daemon start` to start it manually. Check logs at `output/runtime/daemon-<identity>.log` for startup errors.
+- **MCP tools fail after CodeGraph restart.** CodeGraph startup can take 10-30s. The adapter waits up to 30s for the daemon to become healthy. If tools still fail, run `python -m rag daemon status` to check CodeGraph health state.
+- **Stale daemon metadata.** If the daemon process was killed (Task Manager, `kill /f`), runtime metadata may persist. The next `rag daemon start` or adapter autostart will detect and clean it automatically via PID liveness check.
 
 ## Step-by-Step Verification (Tests)
 
@@ -778,6 +784,12 @@ pytest tests/test_09_search.py -v
 pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
        tests/test_16_gateway_server.py tests/test_17_gateway_cli.py \
        tests/test_18_gateway_lifecycle.py -v
+
+# Daemon + adapter stages
+pytest tests/test_20_gateway_service.py tests/test_21_gateway_mcp_protocol.py \
+       tests/test_22_daemon_config_runtime.py tests/test_23_daemon_http.py \
+       tests/test_24_daemon_client_process.py tests/test_25_adapter.py \
+       tests/test_26_setup_config_daemon.py -v
 ```
 
 ### Stage Reference
@@ -803,6 +815,13 @@ pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
 | 17 | `test_17_gateway_cli.py` | `rag gateway` CLI dispatch and existing CLI path preservation | None |
 | 18 | `test_18_gateway_lifecycle.py` | CodeGraph lifecycle CLI command construction, status, init, reindex, sync, restart | None |
 | 19 | `test_19_pytest_config.py` | Pytest basetemp/cache_dir project configuration | None |
+| 20 | `test_20_gateway_service.py` | GatewayToolService: doc-only construction, CodeGraph-enabled, call_tool delegation | None |
+| 21 | `test_21_gateway_mcp_protocol.py` | Shared MCP JSON-RPC handler: notifications, serialization, tools/list | None |
+| 22 | `test_22_daemon_config_runtime.py` | Daemon identity stability, runtime/log path derivation, metadata round-trip, malformed reads | None |
+| 23 | `test_23_daemon_http.py` | Loopback HTTP daemon: token auth, endpoint routing, reload, missing tool error | None |
+| 24 | `test_24_daemon_client_process.py` | DaemonClient authorized requests, autostart, no-autostart, reload | None |
+| 25 | `test_25_adapter.py` | Adapter stdin → MCP: initialize + tools/list, tools/call with MCP text response | None |
+| 26 | `test_26_setup_config_daemon.py` | Setup config wizard: disable/enable CodeGraph, skip gateway | None |
 
 **Stage 1–6** run instantly (no network, no disk I/O beyond temp files). If any of these fail, you have a code or dependency issue.
 
@@ -817,9 +836,9 @@ pytest tests/test_14_gateway_config.py tests/test_15_gateway_tools.py \
 ### Interpreting Results
 
 ```
-53 passed, 1 deselected  ← ✅ All systems operational
-40 passed, 13 skipped    ← ⚠️ Stages 8+ skipped. Check Ollama and index.
-3 failed, 50 passed      ← ❌ Failures indicate specific component issues.
+267 passed, 2 deselected  ← ✅ All systems operational
+200 passed, 67 skipped    ← ⚠️ Stages 8+ skipped. Check Ollama and index.
+3 failed, 264 passed      ← ❌ Failures indicate specific component issues.
                             Run stages individually to isolate.
 ```
 
